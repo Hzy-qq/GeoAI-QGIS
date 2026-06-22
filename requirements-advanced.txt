@@ -1,4 +1,0 @@
-geopandas
-langgraph
-chromadb
-sentence-transformers
