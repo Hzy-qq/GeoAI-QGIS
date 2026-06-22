@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+outputs/*
+!outputs/.gitkeep
+data/processed/*.gpkg
+!data/.gitkeep
+!data/processed/.gitkeep
