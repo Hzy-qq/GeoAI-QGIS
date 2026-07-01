@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .config import load_dotenv
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHROMA_PATH = PROJECT_ROOT / "outputs" / "chroma"
@@ -21,18 +23,23 @@ class ChromaStoreError(RuntimeError):
 
 
 def get_chroma_path() -> Path:
-    return Path(os.getenv("CHROMA_PATH", str(DEFAULT_CHROMA_PATH)))
+    load_dotenv()
+    path = Path(os.getenv("CHROMA_PATH", str(DEFAULT_CHROMA_PATH)))
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def get_chroma_collection_name() -> str:
+    load_dotenv()
     return os.getenv("CHROMA_COLLECTION", DEFAULT_COLLECTION_NAME)
 
 
 def get_embedding_model_name(model_name: str | None = None) -> str:
+    load_dotenv()
     return model_name or os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
 
 
 def configure_huggingface_cache() -> None:
+    load_dotenv()
     cache_path = Path(os.getenv("HF_HOME", str(DEFAULT_HF_CACHE_PATH)))
     cache_path.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("HF_HOME", str(cache_path))
@@ -179,7 +186,13 @@ def get_chroma_collection(
             embedding_function=embedding_function,
             metadata={"description": "GeoAI RAG knowledge base"},
         )
-    return client.get_collection(name=name, embedding_function=embedding_function)
+    try:
+        return client.get_collection(name=name, embedding_function=embedding_function)
+    except Exception as exc:
+        raise ChromaStoreError(
+            f"Chroma collection '{name}' does not exist at '{path or get_chroma_path()}'. "
+            "Run: python scripts/build_chroma_store.py"
+        ) from exc
 
 
 def normalize_metadata(metadata: dict[str, Any] | None) -> dict[str, str | int | float | bool]:
@@ -294,3 +307,27 @@ def retrieve_chroma_context(
             f"[Retrieved {index} | score={result['score']} | source={source}]\n{result['text']}"
         )
     return "\n\n".join(context_parts), results
+
+
+def retrieve_chroma_context_with_rerank(
+    query: str,
+    top_k: int = 4,
+    *,
+    candidate_k: int | None = None,
+    path: Path | None = None,
+    collection_name: str | None = None,
+    embedding_model: str | None = None,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    from .config import env_int
+    from .reranker import build_context, rerank_documents
+
+    dense_k = candidate_k or env_int("RETRIEVAL_TOP_K", 20)
+    _, candidates = retrieve_chroma_context(
+        query,
+        top_k=dense_k,
+        path=path,
+        collection_name=collection_name,
+        embedding_model=embedding_model,
+    )
+    ranked, metadata = rerank_documents(query, candidates, top_k=top_k)
+    return build_context(ranked), ranked, metadata

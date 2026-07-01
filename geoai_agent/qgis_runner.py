@@ -37,6 +37,7 @@ def run_qgis_algorithm(algorithm_id: str, params: dict, overwrite: bool = True) 
         text=True,
         encoding="utf-8",
         errors="ignore",
+        timeout=int(os.getenv("QGIS_TIMEOUT_SECONDS", "300")),
     )
 
     return {

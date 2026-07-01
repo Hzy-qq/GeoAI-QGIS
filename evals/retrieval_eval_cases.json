@@ -1,0 +1,6 @@
+[
+  {"id":"dynamic_road","query":"统计南京市所有大学周边500米道路长度","relevant_ids":["workflow-example-dynamic-road","task-guides-dynamic-data"]},
+  {"id":"data_download","query":"Agent如何判断和下载大学道路数据","relevant_ids":["task-guides-dynamic-data","qgis-tools-data-acquisition"]},
+  {"id":"crs","query":"经纬度数据怎样转换后计算500米缓冲区","relevant_ids":["qgis-tools-crs","task-guides-dynamic-data"]},
+  {"id":"tool_calling","query":"原生Tool Calling如何经过白名单和Schema校验","relevant_ids":["task-guides-tool-calling"]}
+]

@@ -1,0 +1,8 @@
+[
+  {"id":"road_nanjing_500m","query":"统计南京市所有大学周边500米范围内的道路总长度","expected":{"supported":true,"task_type":"road_length_around_poi","region_name":"南京市","poi_type":"university","distance_meters":500}},
+  {"id":"road_nanjing_1km","query":"计算南京高校附近1公里道路长度","expected":{"supported":true,"task_type":"road_length_around_poi","region_name":"南京市","poi_type":"university","distance_meters":1000}},
+  {"id":"road_suzhou_default","query":"统计苏州市大学周边道路长度","expected":{"supported":true,"task_type":"road_length_around_poi","region_name":"苏州市","poi_type":"university","distance_meters":1000}},
+  {"id":"area_nanjing","query":"南京市面积是多少","expected":{"supported":true,"task_type":"administrative_area","region_name":"南京市","distance_meters":0}},
+  {"id":"count_nanjing","query":"南京市有多少个高校要素","expected":{"supported":true,"task_type":"university_count","region_name":"南京市","distance_meters":0}},
+  {"id":"unsupported_school_size","query":"统计南京所有学校的建筑面积","expected":{"supported":false,"task_type":"unsupported"}}
+]

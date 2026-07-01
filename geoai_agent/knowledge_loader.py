@@ -7,27 +7,42 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 KNOWLEDGE_DIR = PROJECT_ROOT / "knowledge"
-EVAL_CASES_PATH = PROJECT_ROOT / "evals" / "eval_cases.json"
+
+
+MARKDOWN_DOCUMENT_TYPES = {
+    "qgis_tools": "tool_doc",
+    "task_guides": "task_guide",
+}
 
 
 def chunk_markdown(path: Path) -> list[dict[str, Any]]:
     text = path.read_text(encoding="utf-8")
     chunks = []
     current_title = path.stem
+    current_id = None
     current_lines = []
 
     def flush() -> None:
         if current_lines:
             chunks.append({
-                "id": f"{path.stem}:{len(chunks) + 1}",
+                "id": current_id or f"{path.stem}:{len(chunks) + 1}",
                 "text": "\n".join(current_lines).strip(),
-                "metadata": {"source": str(path.relative_to(PROJECT_ROOT)), "title": current_title},
+                "metadata": {
+                    "source": str(path.relative_to(PROJECT_ROOT)),
+                    "title": current_title,
+                    "type": MARKDOWN_DOCUMENT_TYPES.get(path.stem, "knowledge_doc"),
+                },
             })
 
     for line in text.splitlines():
         if line.startswith("#"):
             flush()
-            current_title = line.lstrip("#").strip() or path.stem
+            heading = line.lstrip("#").strip() or path.stem
+            current_id = None
+            if heading.endswith("}") and "{#" in heading:
+                heading, raw_id = heading.rsplit("{#", 1)
+                current_id = raw_id[:-1].strip()
+            current_title = heading.strip()
             current_lines = [line]
         else:
             current_lines.append(line)
@@ -45,25 +60,22 @@ def load_workflow_examples(path: Path = KNOWLEDGE_DIR / "workflow_examples.jsonl
                 continue
             data = json.loads(line)
             chunks.append({
-                "id": f"workflow_example:{index}",
+                "id": data.get("id") or f"workflow_example:{index}",
                 "text": json.dumps(data, ensure_ascii=False, indent=2),
                 "metadata": {"source": str(path.relative_to(PROJECT_ROOT)), "type": "workflow_example"},
             })
     return chunks
 
 
-def load_eval_cases(path: Path = EVAL_CASES_PATH) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    cases = json.loads(path.read_text(encoding="utf-8"))
-    chunks = []
-    for case in cases:
-        chunks.append({
-            "id": f"eval_case:{case.get('id', len(chunks) + 1)}",
-            "text": json.dumps(case, ensure_ascii=False, indent=2),
-            "metadata": {"source": str(path.relative_to(PROJECT_ROOT)), "type": "eval_case"},
-        })
-    return chunks
+def validate_knowledge_documents(documents: list[dict[str, Any]]) -> None:
+    """Prevent evaluation data from leaking into the production knowledge base."""
+    for document in documents:
+        metadata = document.get("metadata", {})
+        source = str(metadata.get("source", "")).replace("\\", "/")
+        if metadata.get("type") == "eval_case" or source.startswith("evals/"):
+            raise ValueError(
+                f"Evaluation data must not be indexed as knowledge: {document.get('id')}"
+            )
 
 
 def load_knowledge_documents() -> list[dict[str, Any]]:
@@ -71,5 +83,5 @@ def load_knowledge_documents() -> list[dict[str, Any]]:
     for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
         documents.extend(chunk_markdown(path))
     documents.extend(load_workflow_examples())
-    documents.extend(load_eval_cases())
+    validate_knowledge_documents(documents)
     return documents
