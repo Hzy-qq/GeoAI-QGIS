@@ -10,6 +10,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from geoai_agent.chroma_store import ChromaStoreError, build_chroma_store
 from geoai_agent.knowledge_loader import load_knowledge_documents
+from geoai_agent.versioning import KNOWLEDGE_BASE_VERSION
 
 
 def main() -> None:
@@ -22,6 +23,7 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     print("Chroma vector store built:")
+    result["knowledge_base_version"] = KNOWLEDGE_BASE_VERSION
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

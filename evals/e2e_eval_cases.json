@@ -1,0 +1,5 @@
+[
+  {"id":"nanjing_area_live","query":"南京市面积是多少","expected_task_type":"administrative_area"},
+  {"id":"nanjing_university_count_live","query":"南京市有多少个高校要素","expected_task_type":"university_count"},
+  {"id":"nanjing_university_roads_live","query":"统计南京市所有大学周边500米范围内的道路总长度","expected_task_type":"road_length_around_poi"}
+]

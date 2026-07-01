@@ -208,3 +208,71 @@ def create_text_response(
         raise LLMClientError("LLM API returned invalid JSON.") from exc
 
     return _extract_chat_content(response_data).strip()
+
+
+def create_tool_call_response(
+    input_messages: list[dict[str, str]],
+    tools: list[dict[str, Any]],
+    *,
+    model: str | None = None,
+    tool_choice: str | dict[str, Any] = "auto",
+    timeout: int = 60,
+) -> dict[str, Any]:
+    """Return the provider-native assistant message, including tool_calls."""
+    payload: dict[str, Any] = {
+        "model": get_llm_model(model),
+        "messages": input_messages,
+        "tools": tools,
+        "tool_choice": tool_choice,
+        "stream": False,
+        "thinking": {
+            "type": _first_env_value(["LLM_TOOL_CALL_THINKING"]) or "disabled"
+        },
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    api_request = request.Request(
+        f"{get_llm_base_url()}/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {get_llm_api_key()}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(api_request, timeout=timeout) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace")
+        raise LLMClientError(f"LLM API HTTP error {exc.code}: {details}") from exc
+    except error.URLError as exc:
+        raise LLMClientError(f"LLM API request failed: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise LLMClientError("LLM API returned invalid JSON.") from exc
+    choices = response_data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise LLMClientError("Could not find choices in LLM response.")
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        raise LLMClientError("Could not find assistant message in LLM response.")
+    return message
+
+
+def parse_single_tool_call(message: dict[str, Any], expected_name: str) -> tuple[dict, dict]:
+    calls = message.get("tool_calls")
+    if not isinstance(calls, list) or len(calls) != 1:
+        raise LLMClientError("Expected exactly one native tool call.")
+    call = calls[0]
+    function = call.get("function", {})
+    if function.get("name") != expected_name:
+        raise LLMClientError(f"Unexpected native tool call: {function.get('name')}")
+    arguments = function.get("arguments")
+    if not isinstance(arguments, str):
+        raise LLMClientError("Native tool arguments must be a JSON string.")
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError as exc:
+        raise LLMClientError("Native tool arguments were not valid JSON.") from exc
+    if not isinstance(parsed, dict):
+        raise LLMClientError("Native tool arguments must decode to an object.")
+    return parsed, call

@@ -3,141 +3,144 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-import warnings
 
 from .llm_client import LLMClientError, create_text_response
+from .task_workspace import TaskWorkspace
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+def _first(gdf, field: str, default: str = "") -> str:
+    if field not in gdf.columns:
+        return default
+    values = gdf[field].dropna().astype(str)
+    return values.iloc[0] if not values.empty else default
 
 
-def get_final_output_path(workflow: dict, project_root: Path = PROJECT_ROOT) -> Path | None:
+def extract_workflow_statistics(
+    plan: dict,
+    workspace: TaskWorkspace,
+) -> dict[str, Any] | None:
+    import geopandas as gpd
+
+    workflow = plan.get("workflow", {})
     steps = workflow.get("steps", [])
     if not steps:
         return None
-    output_path = steps[-1].get("params", {}).get("OUTPUT")
-    if not output_path:
+    output = steps[-1].get("params", {}).get("OUTPUT")
+    if not output:
         return None
-    return project_root / output_path
-
-
-def summarize_road_length(result_path: Path) -> dict[str, Any] | None:
-    if result_path is None or not result_path.exists():
+    path = workspace.resolve(output)
+    if not path.exists():
         return None
-
-    try:
-        import geopandas as gpd
-    except ImportError:
-        return None
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        gdf = gpd.read_file(result_path)
-
-    if "road_length" not in gdf.columns or "road_count" not in gdf.columns:
-        return None
-
-    road_length_m = float(gdf["road_length"].sum())
-    road_count = int(gdf["road_count"].sum())
-    return {
-        "result_file": str(result_path),
-        "road_length_m": round(road_length_m, 2),
-        "road_length_km": round(road_length_m / 1000, 2),
-        "road_count": road_count,
+    gdf = gpd.read_file(path)
+    name = workflow.get("workflow")
+    common = {
+        "result_file": str(path),
+        "region_name": plan.get("region_name", ""),
+        "data_requirements": plan.get("data_requirements", []),
+        "data_notice": "OpenStreetMap is community-maintained data and may differ from official statistics.",
     }
+    if name == "dynamic_road_length_around_poi":
+        if not {"road_length", "road_count"}.issubset(gdf.columns):
+            return None
+        road_length_m = float(gdf["road_length"].sum())
+        return {
+            **common,
+            "result_type": "road_length_around_poi",
+            "poi_type": plan.get("poi_type"),
+            "distance_meters": plan.get("distance_meters"),
+            "road_length_m": round(road_length_m, 2),
+            "road_length_km": round(road_length_m / 1000, 2),
+            "road_count": int(gdf["road_count"].sum()),
+            "counting_method": "dissolved_union_buffer",
+        }
+    if name == "dynamic_administrative_area":
+        if "area_sq_km" not in gdf.columns:
+            return None
+        return {
+            **common,
+            "result_type": "administrative_area",
+            "area_sq_km": round(float(gdf["area_sq_km"].sum()), 2),
+            "data_source": _first(gdf, "data_source", "osm_nominatim"),
+        }
+    if name == "dynamic_university_count":
+        if "point_count" not in gdf.columns:
+            return None
+        return {
+            **common,
+            "result_type": "university_count",
+            "point_count": int(gdf["point_count"].max()),
+            "data_source": _first(gdf, "point_data_source", "osm_overpass"),
+        }
+    return None
 
 
-def build_road_length_answer(
-    user_query: str,
-    distance_meters: int | None,
-    summary: dict[str, Any],
-) -> str:
-    distance_text = f"{distance_meters} 米" if distance_meters else "指定范围"
-    return (
-        f"已完成分析：{user_query}\n"
-        f"在 places 周边 {distance_text} 范围内，道路总长度约为 "
-        f"{summary['road_length_km']} 公里，共统计到 {summary['road_count']} 条道路要素。\n"
-        f"结果文件已保存到：{summary['result_file']}"
-    )
+def build_deterministic_answer(user_query: str, stats: dict[str, Any]) -> str:
+    result_type = stats["result_type"]
+    if result_type == "road_length_around_poi":
+        return (
+            f"已完成分析：{user_query}\n"
+            f"基于 OpenStreetMap 当前收录的高校/学院要素，将 {stats['distance_meters']} 米缓冲区"
+            f"合并后统计，{stats['region_name']}高校周边道路总长度约为 "
+            f"{stats['road_length_km']} 公里，共涉及 {stats['road_count']} 条道路要素。"
+            "重叠缓冲区内的道路未重复计数。\n"
+            f"结果文件：{stats['result_file']}\n"
+            "说明：OSM 为社区维护数据，结果不等同于官方高校或道路统计。"
+        )
+    if result_type == "administrative_area":
+        return (
+            f"已完成分析：{user_query}\n{stats['region_name']}面积约为 "
+            f"{stats['area_sq_km']} 平方公里。结果文件：{stats['result_file']}\n"
+            "边界来自 OpenStreetMap Nominatim，可能与官方口径存在差异。"
+        )
+    if result_type == "university_count":
+        return (
+            f"已完成分析：{user_query}\n在 {stats['region_name']}边界内检索到 "
+            f"{stats['point_count']} 个 OSM 高校/学院要素。结果文件：{stats['result_file']}\n"
+            "该数值是 OSM 要素数，不等同于官方高校数量。"
+        )
+    raise ValueError(f"Unsupported result type: {result_type}")
 
 
-def build_llm_summary_messages(
-    user_query: str,
-    distance_meters: int | None,
-    summary: dict[str, Any],
-) -> list[dict[str, str]]:
-    distance_text = f"{distance_meters} 米" if distance_meters else "未显式指定"
-    statistics = {
-        "result_file": summary["result_file"],
-        "road_length_m": summary["road_length_m"],
-        "road_length_km": summary["road_length_km"],
-        "road_count": summary["road_count"],
-        "distance_meters": distance_meters,
-    }
-    statistics_text = json.dumps(statistics, ensure_ascii=False, indent=2)
+def build_llm_summary_messages(user_query: str, stats: dict[str, Any]) -> list[dict[str, str]]:
     return [
         {
             "role": "system",
             "content": (
-                "你是一个 GIS Agent 的结果总结节点。"
-                "你只负责把工具已经计算出的统计结果，整理成简洁、准确的中文回答。"
-                "不要重新计算，不要编造不存在的数据。"
-                "回答中必须包含分析是否完成、缓冲距离、道路总长度、道路要素数量、结果文件路径。"
+                "你是GIS Agent结果总结节点。只能引用可信统计JSON，禁止重新计算或编造。"
+                "必须说明区域、数据来源、关键统计值、结果文件和OSM数据口径限制。"
             ),
         },
         {
             "role": "user",
             "content": (
-                f"用户原始任务：{user_query}\n"
-                f"缓冲距离：{distance_text}\n"
-                f"工具统计结果 JSON：\n{statistics_text}\n\n"
-                "请基于这些真实统计结果，输出给用户看的最终中文回答。"
+                f"用户任务：{user_query}\n可信统计JSON：\n"
+                f"{json.dumps(stats, ensure_ascii=False, indent=2)}\n请用简洁中文回答。"
             ),
         },
     ]
 
 
-def generate_llm_road_length_answer(
-    user_query: str,
-    distance_meters: int | None,
-    summary: dict[str, Any],
-    *,
-    model: str | None = None,
-) -> str:
-    messages = build_llm_summary_messages(user_query, distance_meters, summary)
-    return create_text_response(messages, model=model)
-
-
 def summarize_workflow_result(
     user_query: str,
-    workflow: dict,
-    distance_meters: int | None = None,
+    plan: dict,
+    workspace: TaskWorkspace,
     *,
     use_llm: bool = True,
 ) -> dict[str, Any] | None:
-    result_path = get_final_output_path(workflow)
-    summary = summarize_road_length(result_path) if result_path else None
-    if summary is None:
+    stats = extract_workflow_statistics(plan, workspace)
+    if stats is None:
         return None
-
-    deterministic_answer = build_road_length_answer(user_query, distance_meters, summary)
-    summary["deterministic_answer"] = deterministic_answer
-
+    deterministic = build_deterministic_answer(user_query, stats)
+    stats["deterministic_answer"] = deterministic
     if not use_llm:
-        summary["answer"] = deterministic_answer
-        summary["answer_source"] = "deterministic"
-        return summary
-
+        stats["answer"] = deterministic
+        stats["answer_source"] = "deterministic"
+        return stats
     try:
-        summary["answer"] = generate_llm_road_length_answer(
-            user_query,
-            distance_meters,
-            summary,
-        )
-        summary["answer_source"] = "llm"
+        stats["answer"] = create_text_response(build_llm_summary_messages(user_query, stats))
+        stats["answer_source"] = "llm"
     except LLMClientError as exc:
-        summary["answer"] = deterministic_answer
-        summary["answer_source"] = "deterministic_fallback"
-        summary["llm_error"] = str(exc)
-
-    return summary
+        stats["answer"] = deterministic
+        stats["answer_source"] = "deterministic_fallback"
+        stats["llm_error"] = str(exc)
+    return stats
