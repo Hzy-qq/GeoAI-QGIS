@@ -9,6 +9,7 @@ TASK_WORKFLOW_NAMES = {
     "road_length_around_poi": "dynamic_road_length_around_poi",
     "administrative_area": "dynamic_administrative_area",
     "university_count": "dynamic_university_count",
+    "adjacent_regions": "fixture_adjacent_regions",
 }
 
 WORKFLOW_TOOL_SEQUENCES = {
@@ -37,6 +38,12 @@ WORKFLOW_TOOL_SEQUENCES = {
         "download_osm_pois",
         "validate_dataset",
         "count_points_in_polygon",
+    ],
+    "fixture_adjacent_regions": [
+        "load_neighbor_boundaries",
+        "validate_dataset",
+        "select_feature_by_attribute",
+        "find_adjacent_polygons",
     ],
 }
 
@@ -163,10 +170,14 @@ def validate_planner_output(plan: dict, strict: bool = True) -> None:
         if poi_type != "university" or distance != 0:
             raise WorkflowSchemaError("university_count requires university and distance=0.")
         required_data = {"administrative_boundary", "university_pois"}
-    else:
+    elif task_type == "administrative_area":
         if poi_type or distance != 0:
             raise WorkflowSchemaError("administrative_area requires empty poi_type and distance=0.")
         required_data = {"administrative_boundary"}
+    else:
+        if poi_type or distance != 0:
+            raise WorkflowSchemaError("adjacent_regions requires empty poi_type and distance=0.")
+        required_data = {"neighbor_boundaries"}
     if set(requirements) != required_data:
         raise WorkflowSchemaError(
             f"{task_type} requires data_requirements={sorted(required_data)}."

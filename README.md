@@ -1,98 +1,132 @@
-# GeoAI-QGIS State 3
+# GeoAI-QGIS State 5
 
-Stage 3 is a LangGraph GIS agent that can determine missing datasets, download
-allowlisted OpenStreetMap data at runtime, validate and reproject it, execute QGIS
-tools, evaluate the result, and return a Chinese LLM summary.
+State 5 is the final multi-turn version of this project. It keeps the State 4 asynchronous
+FastAPI + Worker + MySQL backend and adds conversation memory, reference resolution and a
+durable LangGraph checkpointer.
+
+## What changed
+
+- Every task belongs to a `conversation_id` (also used as LangGraph `thread_id`).
+- MySQL stores complete conversations, messages and structured memory.
+- SQLite Checkpointer stores LangGraph thread checkpoints under `outputs/checkpoints/`.
+- The context resolver can inherit a region from earlier turns or ask for clarification.
+- Recent messages, a bounded old-message summary and structured slots are stored separately.
+- An adjacency workflow was added for the three-turn Nanjing acceptance scenario.
+
+RAG and memory are different subsystems. Chroma retrieves GIS knowledge for planning; MySQL
+and the Checkpointer preserve user-specific conversation context.
 
 ## Supported tasks
 
-1. `统计南京市所有大学周边500米范围内的道路总长度`
-2. `南京市面积是多少`
-3. `南京市有多少个高校要素`
+1. Administrative area: `帮我计算南京市的面积`
+2. Adjacent regions: `它周围有哪些城市？`
+3. University count: `再统计这里面的高校数量`
+4. Road length around all OSM universities: `统计南京市所有大学附近500米道路总长度`
 
-The first task dissolves all university buffers before road statistics, so roads
-inside overlapping buffers are counted once. "All universities" means the current
-OSM `amenity=university|college` features, not an official institution list.
+The adjacency task uses `data/fixtures/nanjing_neighbor_cities.gpkg`, a bundled GADM 4.1
+academic test fixture. It is deterministic for project evaluation but may differ from current
+official administrative divisions. The other tasks use allowlisted OpenStreetMap services.
 
-## Runtime flow
+## Architecture
 
 ```text
-query
-  -> Chroma dense retrieval -> Cross-Encoder rerank
-  -> DeepSeek native submit_gis_plan tool call
-  -> workflow/schema/data-source validation
-  -> download boundary and POIs
-  -> auto UTM projection -> dissolved buffer
-  -> download roads -> match CRS -> QGIS clip/sum
-  -> deterministic evaluator
-  -> LLM summary
+Client / Swagger / CLI
+  -> FastAPI creates task + conversation message in MySQL
+  -> Worker claims task
+  -> outer Conversation LangGraph
+       -> context_resolver
+       -> clarify OR inner GIS LangGraph
+  -> inner GIS LangGraph
+       -> Chroma retrieval + reranking
+       -> constrained planner + schema validation
+       -> tool execution + deterministic evaluation
+       -> LLM result summary
+  -> MySQL persists result, messages and structured slots
+  -> SQLiteSaver persists the LangGraph thread checkpoint
 ```
-
-The LLM never supplies a URL. Dataset IDs are resolved by `dataset_catalog.py` to
-Nominatim or Overpass. Every output path must use `workspace://`, which is resolved
-under `outputs/tasks/<task_id>`.
-
-DeepSeek V4 enables thinking mode by default. This project sets
-`LLM_TOOL_CALL_THINKING=disabled` for the forced `submit_gis_plan` call because the
-provider does not allow forced `tool_choice` in thinking mode.
 
 ## Installation
 
-Run commands from this directory:
+Clone the repository and use a Python environment that can access QGIS:
 
 ```powershell
-cd F:\研一\GitHub项目\qgis-geoagent\QGIS_AI_State_3
-F:\anaconda3\envs\pytorch\python.exe -m pip install -r requirements-advanced.txt
+git clone https://github.com/Hzy-qq/GeoAI-QGIS.git
+cd GeoAI-QGIS
+python -m pip install -r requirements.txt
 Copy-Item .env.example .env
+notepad .env
 ```
 
-Fill in `LLM_API_KEY` in `.env`. Do not commit `.env`.
+Set `LLM_API_KEY`, `QGIS_PROCESS_CMD`, the two MySQL passwords and `DATABASE_URL` in `.env`.
+Do not commit `.env`.
 
-## Execution order
+Start MySQL with Docker Compose. Stop any existing service already using port 3306 first:
 
 ```powershell
-F:\anaconda3\envs\pytorch\python.exe scripts/check_runtime.py
-F:\anaconda3\envs\pytorch\python.exe scripts/run_tests.py
-F:\anaconda3\envs\pytorch\python.exe scripts/build_chroma_store.py
-F:\anaconda3\envs\pytorch\python.exe scripts/retrieve_chroma_knowledge.py "大学周边道路长度"
-F:\anaconda3\envs\pytorch\python.exe scripts/test_dynamic_data.py 南京市
-F:\anaconda3\envs\pytorch\python.exe scripts/smoke_test_dynamic_workflow.py --region 南京市 --distance 500
-F:\anaconda3\envs\pytorch\python.exe scripts/run_state3_agent.py
+docker compose up -d mysql
+docker compose ps
 ```
 
-No business data preparation script is required. The first real task downloads data
-and model files, so it is slower. Later runs can use the data and model caches.
-
-For Jiangsu cities, `ROAD_SOURCE_MODE=auto` prefers the daily Geofabrik Jiangsu PBF
-extract and filters roads locally. This avoids using public Overpass for a city-scale
-road network. Other regions fall back to bounded Overpass grid queries. Set
-`ROAD_SOURCE_MODE=geofabrik` to forbid fallback or `overpass` to test only Overpass.
-
-## Evaluation
-
-Offline unit tests:
+Build the State 5 Chroma collection once:
 
 ```powershell
-python scripts/evaluate_stage3.py
+python scripts\build_knowledge.py
 ```
 
-Retrieval evaluation after building Chroma:
+## Run
+
+Terminal 1:
 
 ```powershell
-python scripts/evaluate_stage3.py --retrieval
+python scripts\run_api.py
 ```
 
-Live planner and end-to-end evaluations consume API/network resources:
+Terminal 2:
 
 ```powershell
-python scripts/evaluate_stage3.py --planner-live
-python scripts/evaluate_stage3.py --e2e-live
+python scripts\run_worker.py
 ```
 
-## Safety and limits
+Open `http://127.0.0.1:8000/docs`.
 
-- Source hosts are allowlisted; model-generated URLs are rejected.
-- Query area, response bytes, feature count, HTTP timeout and QGIS timeout are bounded.
-- Planning is attempted at most twice; transient execution is retried once.
-- Result files and required statistic fields must pass the evaluator before summary.
-- Raw data, caches, task outputs and `.env` are excluded by `.gitignore`.
+1. Call `POST /api/v1/conversations` and keep the returned `conversation_id`.
+2. Call `POST /api/v1/tasks` with the first query and that `conversation_id`.
+3. Poll `GET /api/v1/tasks/{task_id}` and read `GET /api/v1/tasks/{task_id}/result`.
+4. Submit later queries with the same `conversation_id`.
+5. Inspect memory using `GET /api/v1/conversations/{conversation_id}` and `/messages`.
+
+Example task body:
+
+```json
+{
+  "query": "它周围有哪些城市？",
+  "user_id": "demo-user",
+  "conversation_id": "the-id-returned-by-the-conversation-api"
+}
+```
+
+For a local interactive session:
+
+```powershell
+python scripts\run_cli.py
+```
+
+The CLI prints its conversation ID. Restore it later with
+`scripts\run_cli.py --conversation-id <id>`.
+
+## Tests
+
+```powershell
+python scripts\evaluate.py
+python scripts\evaluate.py --check-runtime
+```
+
+The offline suite covers API idempotency, conversation isolation and clarification, schema
+guardrails, workspace path safety, execution retry bounds, result evaluation and the bundled
+Nanjing adjacency topology workflow. Live LLM/network evaluation remains opt-in.
+
+## Repository safety
+
+`.env`, MySQL data, Chroma indexes, checkpoints, downloaded OSM data and task outputs are not
+committed. Only `.env.example`, source code, tests and the small licensed evaluation fixture are
+kept in the project.

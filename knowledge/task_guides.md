@@ -28,3 +28,8 @@ plan_recoverable，可反馈 Planner 后重规划；未知工具、越界路径�
 
 行政区面积任务动态下载边界，自动选择 UTM 后计算平方公里。高校计数任务动态下载边界与
 OSM amenity=university/college 点要素，并在边界内计数。两类任务都必须经过 Evaluator。
+# Adjacent regions
+
+For `adjacent_regions`, load the bundled neighbor-boundary fixture, validate polygon geometry,
+select the named target region, then calculate touching polygons. Never infer adjacency from
+the language model. Report the fixture version and its non-official data limitation.

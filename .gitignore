@@ -11,3 +11,4 @@ data/processed/*
 !data/processed/.gitkeep
 data/fixtures/*
 !data/fixtures/.gitkeep
+!data/fixtures/nanjing_neighbor_cities.gpkg

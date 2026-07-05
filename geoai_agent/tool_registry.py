@@ -27,6 +27,12 @@ POSITIVE_INT = {"type": "integer", "minimum": 1}
 
 
 TOOL_REGISTRY = {
+    "load_neighbor_boundaries": _tool(
+        "python", "python:load_neighbor_boundaries",
+        "Load the bundled, versioned neighboring-city boundary fixture for topology analysis.",
+        ["REGION_NAME", "OUTPUT"], [],
+        {"REGION_NAME": STRING, "OUTPUT": PATH},
+    ),
     "download_region_boundary": _tool(
         "python", "python:download_region_boundary",
         "Download one administrative boundary from the allowlisted Nominatim source.",

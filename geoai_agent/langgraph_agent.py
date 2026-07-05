@@ -264,7 +264,7 @@ def run_langgraph_agent(
         config={"recursion_limit": env_int("LANGGRAPH_RECURSION_LIMIT", 20)},
     )
     return {
-        "agent": "GeoAI State 3 LangGraph Agent",
+        "agent": "GeoAI State 5 GIS LangGraph Agent",
         "task_id": workspace.task_id,
         "workspace": str(workspace.root),
         "user_query": user_query,

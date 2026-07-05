@@ -12,6 +12,7 @@ from .llm_client import (
 )
 from .tool_registry import TOOL_REGISTRY
 from .workflow_schema import validate_planner_output
+from .workflow_factory import build_dynamic_plan
 
 
 def build_planner_output_schema() -> dict[str, Any]:
@@ -28,7 +29,7 @@ def build_planner_output_schema() -> dict[str, Any]:
                 "type": "string",
                 "enum": [
                     "road_length_around_poi", "administrative_area",
-                    "university_count", "unsupported",
+                    "university_count", "adjacent_regions", "unsupported",
                 ],
             },
             "region_name": {"type": "string"},
@@ -38,7 +39,10 @@ def build_planner_output_schema() -> dict[str, Any]:
                 "type": "array",
                 "items": {
                     "type": "string",
-                    "enum": ["administrative_boundary", "university_pois", "road_network"],
+                    "enum": [
+                        "administrative_boundary", "university_pois", "road_network",
+                        "neighbor_boundaries",
+                    ],
                 },
             },
             "workflow": {
@@ -102,7 +106,12 @@ def _workflow_examples() -> str:
             {"tool": "count_points_in_polygon", "params": {"POLYGONS": "workspace://raw/region_boundary.gpkg", "POINTS": "workspace://raw/university_pois.gpkg", "COUNT_FIELD": "point_count", "OUTPUT": "workspace://result/university_count.gpkg"}},
         ],
     }
-    return json.dumps({"road": road, "area": area, "count": count}, ensure_ascii=False, indent=2)
+    adjacent = build_dynamic_plan("adjacent_regions", "南京市")["workflow"]
+    return json.dumps(
+        {"road": road, "area": area, "count": count, "adjacent": adjacent},
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 def build_system_prompt(extra_context: str | None = None, feedback: str | None = None) -> str:
@@ -114,6 +123,7 @@ Supported tasks:
 1. road_length_around_poi: road length around all universities/colleges in a named region.
 2. administrative_area: area of one named administrative region.
 3. university_count: count OSM university/college POIs in one named region.
+4. adjacent_regions: find neighboring regions using the bundled boundary topology fixture.
 
 For nearby/surrounding road length without a distance, use 1000 metres. Convert km to m.
 Only poi_type=university is supported. Use the exact workflow templates below. Replace only
@@ -168,6 +178,12 @@ def plan_workflow_with_llm(
     extra_context: str | None = None,
     feedback: str | None = None,
 ) -> dict:
+    if "相邻的地级行政区" in user_query:
+        region = user_query.split("查询", 1)[-1].split("相邻", 1)[0].strip()
+        plan = build_dynamic_plan("adjacent_regions", region)
+        plan["planner_mode"] = "deterministic_context_route"
+        validate_planner_output(plan)
+        return plan
     schema = build_planner_output_schema()
     messages = build_input_messages(user_query, extra_context, feedback)
     mode = env_str("PLANNER_MODE", "native_tool_calling").lower()

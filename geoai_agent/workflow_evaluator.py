@@ -10,6 +10,7 @@ REQUIRED_RESULT_FIELDS = {
     "dynamic_road_length_around_poi": {"road_length", "road_count"},
     "dynamic_administrative_area": {"area_sq_km"},
     "dynamic_university_count": {"point_count"},
+    "fixture_adjacent_regions": set(),
 }
 
 
@@ -36,6 +37,8 @@ def evaluate_workflow_result(
         return {"passed": False, "issues": [f"Result layer is unreadable: {exc}"]}
     if result.empty:
         issues.append("Result layer is empty.")
+    if workflow["workflow"] == "fixture_adjacent_regions" and "region_name" not in result.columns:
+        issues.append("Adjacent-region result is missing region_name.")
     required = REQUIRED_RESULT_FIELDS.get(workflow["workflow"], set())
     missing = sorted(required - set(result.columns))
     if missing:

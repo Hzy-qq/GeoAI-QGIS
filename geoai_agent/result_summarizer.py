@@ -71,6 +71,17 @@ def extract_workflow_statistics(
             "point_count": int(gdf["point_count"].max()),
             "data_source": _first(gdf, "point_data_source", "osm_overpass"),
         }
+    if name == "fixture_adjacent_regions":
+        if "region_name" not in gdf.columns:
+            return None
+        return {
+            **common,
+            "result_type": "adjacent_regions",
+            "adjacent_count": int(len(gdf)),
+            "adjacent_names": sorted(gdf["region_name"].dropna().astype(str).tolist()),
+            "data_source": _first(gdf, "data_source", "bundled_gadm_4_1_fixture"),
+            "data_notice": "该邻接结果来自随项目分发的 GADM 4.1 学术测试夹具，可能与现行官方区划不同。",
+        }
     return None
 
 
@@ -98,6 +109,13 @@ def build_deterministic_answer(user_query: str, stats: dict[str, Any]) -> str:
             f"{stats['point_count']} 个 OSM 高校/学院要素。结果文件：{stats['result_file']}\n"
             "该数值是 OSM 要素数，不等同于官方高校数量。"
         )
+    if result_type == "adjacent_regions":
+        names = "、".join(stats["adjacent_names"])
+        return (
+            f"已完成分析：{user_query}\n与 {stats['region_name']} 相邻的区域共 "
+            f"{stats['adjacent_count']} 个：{names}。结果文件：{stats['result_file']}\n"
+            "说明：结果基于项目内 GADM 4.1 学术测试夹具，可能与现行官方行政区划不同。"
+        )
     raise ValueError(f"Unsupported result type: {result_type}")
 
 
@@ -107,7 +125,7 @@ def build_llm_summary_messages(user_query: str, stats: dict[str, Any]) -> list[d
             "role": "system",
             "content": (
                 "你是GIS Agent结果总结节点。只能引用可信统计JSON，禁止重新计算或编造。"
-                "必须说明区域、数据来源、关键统计值、结果文件和OSM数据口径限制。"
+                "必须说明区域、数据来源、关键统计值、结果文件，并准确引用 data_notice。"
             ),
         },
         {

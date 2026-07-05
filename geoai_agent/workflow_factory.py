@@ -77,6 +77,19 @@ def build_dynamic_plan(
         requirements = ["administrative_boundary", "university_pois"]
         poi_type = "university"
         distance_meters = 0
+    elif task_type == "adjacent_regions":
+        workflow = {
+            "workflow": "fixture_adjacent_regions",
+            "steps": [
+                {"tool": "load_neighbor_boundaries", "params": {"REGION_NAME": region_name, "OUTPUT": "workspace://raw/neighbor_boundaries.gpkg"}},
+                {"tool": "validate_dataset", "params": {"INPUT": "workspace://raw/neighbor_boundaries.gpkg", "GEOMETRY_TYPE": "polygon"}},
+                {"tool": "select_feature_by_attribute", "params": {"INPUT": "workspace://raw/neighbor_boundaries.gpkg", "FIELD": "region_name", "VALUE": region_name, "OUTPUT": "workspace://processed/target_region.gpkg"}},
+                {"tool": "find_adjacent_polygons", "params": {"INPUT": "workspace://raw/neighbor_boundaries.gpkg", "TARGET": "workspace://processed/target_region.gpkg", "NAME_FIELD": "region_name", "TOLERANCE_M": 100, "OUTPUT": "workspace://result/adjacent_regions.gpkg"}},
+            ],
+        }
+        requirements = ["neighbor_boundaries"]
+        poi_type = ""
+        distance_meters = 0
     else:
         raise ValueError(f"Unsupported task_type: {task_type}")
     return {

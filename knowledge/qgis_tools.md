@@ -20,3 +20,9 @@ native:sumlinelengths 产生 road_length 和 road_count 字段。Evaluator 会�
 # 数据质量工具 {#qgis-tools-validation}
 
 validate_dataset 检查文件存在、要素数、CRS、几何类型、空几何和无效几何。下载数据不能绕过该步骤。
+# State 5 conversation and adjacency tools
+
+`load_neighbor_boundaries` copies the allowlisted bundled boundary fixture into the current
+task workspace. `select_feature_by_attribute` selects the target region and
+`find_adjacent_polygons` computes topology-based neighbors. All paths remain task-scoped
+`workspace://` paths.
