@@ -15,3 +15,9 @@ official university or road inventory.
 The road query includes motorway, trunk, primary, secondary, tertiary,
 unclassified, residential, living_street and their link classes. Footways,
 paths, steps, construction roads and service roads are excluded.
+# State 5 bundled adjacency fixture
+
+`fixtures/nanjing_neighbor_cities.gpkg` is a small GADM 4.1-derived academic test fixture
+copied from the earlier project stage. It exists to make the Nanjing multi-turn acceptance
+test deterministic. It may contain historical administrative units and must not be presented
+as current official administrative data.

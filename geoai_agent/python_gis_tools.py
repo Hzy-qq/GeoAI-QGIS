@@ -45,6 +45,27 @@ def normalize_name(value: Any) -> str:
     return "".join(str(value).strip().lower().split())
 
 
+def load_neighbor_boundaries(params: dict[str, Any]) -> dict[str, Any]:
+    source = PROJECT_ROOT / "data" / "fixtures" / "nanjing_neighbor_cities.gpkg"
+    if not source.exists():
+        raise FileNotFoundError(f"Bundled neighbor-boundary fixture is missing: {source}")
+    gdf = read_layer(str(source))
+    if "region_name" not in gdf.columns:
+        raise ValueError("Neighbor-boundary fixture has no region_name field.")
+    expected = normalize_name(params["REGION_NAME"])
+    if not gdf["region_name"].astype(str).map(normalize_name).eq(expected).any():
+        raise ValueError(
+            f"The bundled adjacency fixture does not cover {params['REGION_NAME']}. "
+            "Currently it is intended for the Nanjing acceptance scenario."
+        )
+    output_path = write_layer(gdf, params["OUTPUT"])
+    return {
+        "feature_count": int(len(gdf)),
+        "data_source": "bundled_gadm_4_1_fixture",
+        "output": str(output_path),
+    }
+
+
 def select_feature_by_attribute(params: dict[str, Any]) -> dict[str, Any]:
     gdf = read_layer(params["INPUT"])
     field = params["FIELD"]
@@ -169,6 +190,7 @@ def count_points_in_polygon(params: dict[str, Any]) -> dict[str, Any]:
 
 
 PYTHON_TOOL_HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "load_neighbor_boundaries": load_neighbor_boundaries,
     "select_feature_by_attribute": select_feature_by_attribute,
     "reproject_layer": reproject_layer,
     "calculate_polygon_area": calculate_polygon_area,

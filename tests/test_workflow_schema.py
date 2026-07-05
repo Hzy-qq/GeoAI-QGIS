@@ -13,6 +13,7 @@ class WorkflowSchemaTests(unittest.TestCase):
             build_dynamic_plan("road_length_around_poi", "南京市", distance_meters=500),
             build_dynamic_plan("administrative_area", "南京市"),
             build_dynamic_plan("university_count", "南京市"),
+            build_dynamic_plan("adjacent_regions", "南京市"),
         ]
         for plan in plans:
             with self.subTest(task_type=plan["task_type"]):

@@ -7,6 +7,12 @@ from .errors import PermanentError
 
 
 DATASET_CATALOG = {
+    "neighbor_boundaries": {
+        "source_id": "bundled_gadm_4_1_fixture",
+        "endpoint": "data/fixtures/nanjing_neighbor_cities.gpkg",
+        "license": "GADM 4.1 academic/non-commercial terms; bundled test fixture",
+        "geometry": "polygon",
+    },
     "administrative_boundary": {
         "source_id": "osm_nominatim",
         "endpoint": "https://nominatim.openstreetmap.org/search",
