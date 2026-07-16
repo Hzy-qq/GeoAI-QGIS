@@ -1,16 +1,17 @@
 # Runtime data sources
 
-This repository contains a reproducible educational OSM snapshot and normalized
-Nanjing runtime layers. They are not official or production GIS datasets.
+This repository contains the data acquisition and validation code but intentionally stores no
+runtime datasets. Optional local OSM extracts and generated Nanjing layers are not official or
+production GIS inventories.
 
 | Dataset | Preferred runtime source | Network fallback | License | Use |
 |---|---|---|---|---|
-| Administrative boundary | Nanjing normalized pack, then Jiangsu PBF | OSM Nominatim | ODbL 1.0 | Region extent and area |
-| 11 POI types | Nanjing normalized pack, then Jiangsu PBF | OSM Overpass | ODbL 1.0 | Count, density, buffers and distance |
-| Main road network | Nanjing normalized pack, then Jiangsu PBF | OSM Shortbread/Overpass | ODbL 1.0 | Road clipping, density and length |
-| Water polygons | Nanjing normalized pack, then Jiangsu PBF | OSM Shortbread/Overpass | ODbL 1.0 | Exclusion and distance constraints |
+| Administrative boundary | Generated Nanjing pack, then optional Jiangsu PBF | OSM Nominatim | ODbL 1.0 | Region extent and area |
+| 11 POI types | Generated Nanjing pack, then optional Jiangsu PBF | OSM Overpass | ODbL 1.0 | Count, density, buffers and distance |
+| Main road network | Generated Nanjing pack, then optional Jiangsu PBF | OSM Shortbread/Overpass | ODbL 1.0 | Road clipping, density and length |
+| Water polygons | Generated Nanjing pack, then optional Jiangsu PBF | OSM Shortbread/Overpass | ODbL 1.0 | Exclusion and distance constraints |
 
-Source files:
+Expected local files (all ignored by Git):
 
 - `osm/jiangsu-latest.osm.pbf`: Jiangsu OSM/Geofabrik snapshot, file modification
   time 2026-07-01; the runtime records this timestamp in output provenance.
@@ -39,9 +40,9 @@ python scripts\build_osm_offline_pack.py
 `ROAD_SOURCE_MODE` and `WATER_SOURCE_MODE` control explicit overrides. Keep their
 default `auto` values for local-first behavior.
 
-## Bundled adjacency fixture
+## Adjacency fixture
 
-`fixtures/nanjing_neighbor_cities.gpkg` is a small GADM 4.1-derived academic test
-fixture copied from an earlier project stage. It makes the Nanjing adjacency test
-deterministic, may contain historical units, and must not be presented as current
-official administrative data.
+`fixtures/nanjing_neighbor_cities.gpkg` is optional and ignored by Git. The unit test creates a
+temporary synthetic topology fixture when it is absent, so code regression does not depend on
+publishing administrative data. Any real boundary layer must be reviewed for source, license and
+currency before use.

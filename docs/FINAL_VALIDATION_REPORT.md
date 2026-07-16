@@ -19,19 +19,19 @@ Date: 2026-07-15 (Asia/Shanghai)
 
 ## Data reliability boundary
 
-The repository now includes `data/osm/jiangsu-latest.osm.pbf` (OSM/Geofabrik snapshot, modified 2026-07-01; SHA256 `66B841FEA4A9FAC62C7FBD4F3DB7765DA04630F1ACED4F1CEA2453EA9D1243D7`) and 14 normalized Nanjing GeoPackages for the boundary, 11 POI types, main roads and water. The complete offline data layer occupies about 89.21 MiB. Nanjing demonstrations therefore do not require Nominatim, Overpass or vector-tile availability. Every local result retains snapshot provenance and is explicitly described as non-real-time, non-official OSM data.
+The validation workspace used a local `jiangsu-latest.osm.pbf` snapshot and 14 generated Nanjing GeoPackages for the boundary, 11 POI types, main roads and water. These runtime datasets are deliberately excluded from Git; only acquisition, validation and pack-building code is published. After local preparation, Nanjing demonstrations do not require Nominatim, Overpass or vector-tile availability. Every local result retains snapshot provenance and is explicitly described as non-real-time, non-official OSM data.
 
-For other Jiangsu extents the runtime reads the local PBF and then writes a persistent normalized cache. For areas outside the snapshot, the fallback network path still uses bounded retries, endpoint circuit breakers, atomic caches and resumable POI tiles; it can still fail visibly when every approved upstream source is unavailable.
+When an optional Jiangsu PBF is configured, other Jiangsu extents use it and write a persistent normalized cache. Without local data, the fallback network path uses bounded retries, endpoint circuit breakers, atomic caches and resumable POI tiles; it can still fail visibly when every approved upstream source is unavailable.
 
 ## Environment-dependent release checks
 
 The infrastructure layer was exercised with isolated ports 13306/16379 and cleaned up without deleting volumes. Before a demonstration run:
 
-1. Start Docker Desktop and run `docker compose up -d mysql redis` (or `docker-compose`).
-2. Build Chroma with `python scripts\build_knowledge.py`.
-3. Run `python scripts\run_api.py` and wait for the companion Worker log.
-4. Run `python scripts\evaluate.py --check-runtime`.
-5. Submit the two bundled offline smoke cases, then optionally run one external-OSM refresh and one DeepSeek-planned follow-up.
+1. Optionally prepare local OSM data using `data/osm/README.md` for network-independent demos.
+2. Start Docker Desktop and run `docker compose up -d mysql redis` (or `docker-compose`).
+3. Build Chroma with `python scripts\build_knowledge.py`.
+4. Run `python scripts\run_api.py` and wait for the companion Worker log.
+5. Run `python scripts\evaluate.py --check-runtime`, then submit the two documented smoke cases.
 
 External OSM refresh and LLM availability are deliberately excluded from the deterministic offline suite.
 

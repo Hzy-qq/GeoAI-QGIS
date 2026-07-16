@@ -67,13 +67,13 @@ MySQL 同时承担业务持久化和轻量队列。Worker 每隔约 2 秒尝试�
 四类运行时数据共用同一优先级：
 
 1. 先命中 `outputs/data_cache` 中的标准化整层或成功分块；
-2. 南京任务读取 `data/osm/nanjing` 的行政区、11 类 POI、主干道路和水系 GPKG；
-3. 其他江苏范围任务读取 `data/osm/jiangsu-latest.osm.pbf`；
+2. 若本地已准备数据，南京任务读取 `data/osm/nanjing` 的行政区、11 类 POI、主干道路和水系 GPKG；
+3. 其他江苏范围可读取用户自行配置的 `data/osm/jiangsu-latest.osm.pbf`；
 4. 本地快照不覆盖时才访问 Nominatim、OSM Shortbread 或 Overpass。
 
-离线包解决的是“公网不可用时仍能完成可复现实验”，PBF 解决的是“换范围后仍有本地原始数据兜底”。网络层仍保留，因为用户可能分析江苏以外区域或主动刷新数据。网络请求使用原子缓存写入、响应大小校验、指数退避、端点熔断和有限重试；POI 按地理网格保存成功分块，失败重试不会从头下载。结果图层写入 `data_source`、`snapshot_modified_at`、瓦片完整度等血缘字段。
+离线包解决的是“公网不可用时仍能完成可复现实验”，PBF 解决的是“换范围后仍有本地原始数据兜底”。这些运行数据不提交到 Git，由用户按 `data/osm/README.md` 在本地准备。网络请求使用原子缓存写入、响应大小校验、指数退避、端点熔断和有限重试；POI 按地理网格保存成功分块，失败重试不会从头下载。结果图层写入 `data_source`、`snapshot_modified_at`、瓦片完整度等血缘字段。
 
-道路只保留 motorway、trunk、primary、secondary 及 link。南京主干道路默认直接读取标准化离线包；只有本地数据无法覆盖时才进入矢量瓦片/Overpass 的区域、分块、端点次数、单请求与总预算控制。因此网络故障不会再阻塞南京演示，外部范围的故障也会有界失败而不是让 Worker 永久占用。
+道路只保留 motorway、trunk、primary、secondary 及 link。准备南京离线包后默认直接读取本地标准化图层；没有本地数据时才进入矢量瓦片/Overpass 的区域、分块、端点次数、单请求与总预算控制。外部故障会有界失败而不是让 Worker 永久占用。
 
 ## 4. 完整案例
 
@@ -102,7 +102,7 @@ MySQL 同时承担业务持久化和轻量队列。Worker 每隔约 2 秒尝试�
 | Worker 未运行 | readiness 失败；等待超过宽限后标记 WORKER_UNAVAILABLE | 是 |
 | 排队过久 | 启动时清理为 QUEUE_EXPIRED | 是 |
 | DeepSeek 不可用 | 受支持模板可规则规划/模板总结；否则明确失败 | 是 |
-| OSM 公网不可用 | 南京离线包；江苏 PBF；其后才是有界网络重试 | 是 |
+| OSM 公网不可用 | 使用已准备的南京离线包/江苏 PBF；否则有界失败 | 是 |
 | 网络分块部分失败 | 复用成功分块；达到阈值则显式标记 partial，否则失败 | 是 |
 | QGIS 命令失败 | 记录 stderr/算法/节点；任务 FAILED | 是 |
 | BGE Reranker 不可用 | 保留向量 Top-K；严格模式关闭时继续 | 是 |

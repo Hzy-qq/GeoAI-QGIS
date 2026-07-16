@@ -10,7 +10,7 @@
 - Redis 辅助层：镜像 SSE 事件、维护 Worker 租约、缓存成功结果；Redis 不可用时自动退回 MySQL、JSONL 进度文件和本地心跳。
 - 可视化交付：多轮聊天、任务时间线、地图图层、GeoPackage 下载和失败原因提示。
 - 工程保护：Pydantic/工作流 Schema 双重校验、目录白名单、超时/重试/道路查询预算、幂等请求、过期队列清理和就绪检查。
-- 稳定数据层：内置江苏 OSM PBF 快照和南京标准化离线包；南京边界、11 类 POI、主干道路和水系不依赖公网，其他江苏区域回退到本地 PBF，最后才使用带缓存、分块和熔断的网络源。
+- 稳定数据层：代码支持南京标准化离线包、可选江苏 OSM PBF 和带缓存/分块/熔断的网络源；运行数据不进入 Git，按需在本地准备。
 
 ## 支持的空间分析
 
@@ -26,9 +26,9 @@
 
 ## 数据获取与离线包
 
-默认 `auto` 级联为：`outputs/data_cache` 命中 → `data/osm/nanjing` 标准化离线包 → `data/osm/jiangsu-latest.osm.pbf` → 受控网络回退。南京常用任务首次运行无需访问 Nominatim、Overpass 或矢量瓦片；结果会写入快照时间并明确说明“非实时官方统计”。
+默认 `auto` 级联为：`outputs/data_cache` 命中 → 本地 `data/osm/nanjing` 标准化包 → 可选 `data/osm/jiangsu-latest.osm.pbf` → 受控网络回退。GitHub 仓库不包含运行数据；准备本地离线包后，南京常用任务无需访问 Nominatim、Overpass 或矢量瓦片。结果会写入数据来源与快照时间，并明确说明“非实时官方统计”。
 
-如替换了江苏 PBF，可重建南京离线包：
+数据准备命令见 [`data/osm/README.md`](data/osm/README.md)。下载或替换江苏 PBF 后可重建南京离线包：
 
 ```powershell
 python scripts\build_osm_offline_pack.py
