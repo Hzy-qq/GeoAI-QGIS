@@ -6,9 +6,9 @@ from .chroma_store import get_embedding_model_name
 from .llm_client import get_llm_model, get_llm_provider
 
 
-CODE_VERSION = "0.7.0-state5"
+CODE_VERSION = "1.0.0-final"
 PROMPT_VERSION = "planner-v3-dynamic-data-tool-call"
-KNOWLEDGE_BASE_VERSION = "geoai-kb-v3-dynamic-data-no-eval"
+KNOWLEDGE_BASE_VERSION = "geoai-kb-v4-local-first-data"
 EVAL_SCHEMA_VERSION = "stage4-v1"
 
 

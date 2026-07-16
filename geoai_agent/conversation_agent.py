@@ -65,12 +65,19 @@ def execute_node(state: ConversationGraphState) -> dict[str, Any]:
     summary = trace.get("summary") or {}
     evaluation = trace.get("evaluation_result") or {}
     memory_update = {
-        "current_region": plan.get("region_name") or state.get("region_name") or "",
-        "current_dataset": plan.get("data_requirements") or [],
         "previous_task_type": plan.get("task_type") or state.get("task_type") or "",
+        "previous_poi_type": plan.get("poi_type") or "",
+        "previous_distance_meters": plan.get("distance_meters") or 0,
         "previous_result": summary.get("answer") or "",
-        "previous_artifact": evaluation.get("result_file") or "",
     }
+    if trace.get("success"):
+        memory_update.update(
+            {
+                "current_region": plan.get("region_name") or state.get("region_name") or "",
+                "current_dataset": plan.get("data_requirements") or [],
+                "previous_artifact": evaluation.get("result_file") or "",
+            }
+        )
     return {
         "answer": summary.get("answer") or "任务未生成回答。",
         "success": bool(trace.get("success")),

@@ -20,13 +20,15 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     worker = TaskWorker()
     if args.once:
-        worker.prepare()
-        processed = worker.run_once()
-        print("Processed one task." if processed else "No pending task.")
+        try:
+            worker.prepare()
+            processed = worker.run_once()
+            print("Processed one task." if processed else "No pending task.")
+        finally:
+            worker.close()
         return
     worker.run_forever(max(0.2, args.poll_seconds))
 
 
 if __name__ == "__main__":
     main()
-

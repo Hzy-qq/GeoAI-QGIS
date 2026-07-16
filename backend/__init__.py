@@ -1,1 +1,1 @@
-"""FastAPI, task persistence and conversation memory for GeoAI-QGIS State 5."""
+"""FastAPI, task persistence and conversation memory for GeoAI-QGIS Final."""

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, TypedDict
@@ -10,9 +11,13 @@ from .dataset_resolver import resolve_data_requirements
 from .executor import ExecutionBudget, execute_workflow
 from .llm_planner import plan_workflow_with_llm
 from .result_summarizer import summarize_workflow_result
+from .progress import append_progress
 from .task_workspace import TaskWorkspace
 from .workflow_evaluator import evaluate_workflow_result
 from .workflow_schema import WorkflowSchemaError, validate_planner_output
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LangGraphAgentState(TypedDict, total=False):
@@ -44,19 +49,57 @@ def _event(state: LangGraphAgentState, node: str, started: float, status: str, *
         "duration_ms": round((time.monotonic() - started) * 1000, 2),
         **extra,
     }
+    task_id = state.get("task_id")
+    if task_id:
+        append_progress(task_id, item)
     return [*state.get("node_trace", []), item]
 
 
 def retrieve_node(state: LangGraphAgentState) -> dict[str, Any]:
     started = time.monotonic()
-    context, docs, metadata = retrieve_chroma_context_with_rerank(
-        state["user_query"], top_k=state.get("top_k", 4),
-    )
+    max_attempts = max(1, env_int("RAG_RETRIEVAL_MAX_ATTEMPTS", 2))
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            context, docs, metadata = retrieve_chroma_context_with_rerank(
+                state["user_query"], top_k=state.get("top_k", 4),
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            LOGGER.warning(
+                "RAG retrieval attempt %s/%s failed: %s",
+                attempt,
+                max_attempts,
+                exc,
+            )
+    else:
+        # RAG improves the plan but is not a hard dependency of the deterministic
+        # GIS tool chain. A stale/closed Chroma or model-download HTTP client must
+        # not prevent a supported spatial analysis from running.
+        error = str(last_error or "unknown retrieval error")
+        context, docs = "", []
+        metadata = {
+            "enabled": False,
+            "degraded": True,
+            "fallback": "empty_context",
+            "attempts": max_attempts,
+            "error": error,
+        }
     return {
         "retrieved_context": context,
         "retrieved_docs": docs,
         "retrieval_metadata": metadata,
-        "node_trace": _event(state, "retrieve", started, "success", documents=len(docs)),
+        "node_trace": _event(
+            state,
+            "retrieve",
+            started,
+            "success",
+            documents=len(docs),
+            degraded=bool(metadata.get("degraded")),
+            attempts=int(metadata.get("attempts", 1)),
+            error=metadata.get("error"),
+        ),
     }
 
 
@@ -73,7 +116,13 @@ def planner_node(state: LangGraphAgentState) -> dict[str, Any]:
             feedback=feedback,
         )
         plan["retrieved_context"] = state.get("retrieved_docs", [])
-        plan["retriever"] = "chroma_cross_encoder"
+        retrieval_metadata = state.get("retrieval_metadata", {})
+        plan["retriever"] = (
+            "chroma_cross_encoder"
+            if retrieval_metadata.get("enabled", True)
+            else "empty_context_fallback"
+        )
+        plan["retrieval_degraded"] = bool(retrieval_metadata.get("degraded"))
         return {
             "plan": plan,
             "attempt_count": attempt,
@@ -91,8 +140,18 @@ def planner_node(state: LangGraphAgentState) -> dict[str, Any]:
 
 def validator_node(state: LangGraphAgentState) -> dict[str, Any]:
     started = time.monotonic()
+    plan = state.get("plan")
+    if plan is None and state.get("validation_error"):
+        # Preserve the actionable planner failure instead of replacing it with
+        # the secondary and misleading "planner output must be an object".
+        error = str(state["validation_error"])
+        return {
+            "validation_error": error,
+            "workflow": None,
+            "node_trace": _event(state, "validate", started, "failed", error=error),
+        }
     try:
-        validate_planner_output(state.get("plan"))
+        validate_planner_output(plan)
     except (WorkflowSchemaError, ValueError) as exc:
         return {
             "validation_error": str(exc),
@@ -144,7 +203,25 @@ def route_after_execution(state: LangGraphAgentState) -> str:
     if trace.get("success"):
         return "evaluate"
     error_type = trace.get("error_type")
-    if error_type == "transient" and state.get("execution_attempt_count", 0) < 2:
+    failed_tool = next(
+        (
+            step.get("tool")
+            for step in trace.get("steps", [])
+            if not step.get("success")
+        ),
+        None,
+    )
+    # Road downloads already try multiple allowlisted endpoints within a strict
+    # interactive deadline. Replaying the entire GIS workflow only doubles the wait.
+    road_download_failed = failed_tool in {
+        "download_osm_roads",
+        "download_osm_roads_in_area",
+    }
+    if (
+        error_type == "transient"
+        and not road_download_failed
+        and state.get("execution_attempt_count", 0) < 2
+    ):
         return "retry_execute"
     if error_type == "plan_recoverable" and state.get("attempt_count", 0) < state.get("max_attempts", 2):
         return "replan"
@@ -264,7 +341,7 @@ def run_langgraph_agent(
         config={"recursion_limit": env_int("LANGGRAPH_RECURSION_LIMIT", 20)},
     )
     return {
-        "agent": "GeoAI State 5 GIS LangGraph Agent",
+        "agent": "GeoAI-QGIS Final GIS LangGraph Agent",
         "task_id": workspace.task_id,
         "workspace": str(workspace.root),
         "user_query": user_query,

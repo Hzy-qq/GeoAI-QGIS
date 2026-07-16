@@ -12,3 +12,11 @@ data/processed/*
 data/fixtures/*
 !data/fixtures/.gitkeep
 !data/fixtures/nanjing_neighbor_cities.gpkg
+
+# The source project contained personal interview/resume material under docs.
+# Keep it local and never publish it with the final engineering repository.
+docs/*.pdf
+docs/*.docx
+docs/._*
+docs/对话记忆_*.md
+docs/*面试问题*.txt

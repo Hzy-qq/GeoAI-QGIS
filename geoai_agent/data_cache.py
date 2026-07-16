@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +37,31 @@ def store_cached_layer(key: str, source: Path, metadata: dict[str, Any]) -> None
     if not cache_enabled():
         return
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, CACHE_ROOT / f"{key}.gpkg")
-    (CACHE_ROOT / f"{key}.json").write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2),
+    layer_target = CACHE_ROOT / f"{key}.gpkg"
+    layer_temp = CACHE_ROOT / f".{key}.{uuid.uuid4().hex}.gpkg.tmp"
+    shutil.copy2(source, layer_temp)
+    os.replace(layer_temp, layer_target)
+    store_cached_json(key, metadata)
+
+
+def restore_cached_json(key: str) -> Any | None:
+    path = CACHE_ROOT / f"{key}.json"
+    if not cache_enabled() or not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def store_cached_json(key: str, payload: Any) -> None:
+    if not cache_enabled():
+        return
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    target = CACHE_ROOT / f"{key}.json"
+    temp = CACHE_ROOT / f".{key}.{uuid.uuid4().hex}.json.tmp"
+    temp.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
     )
+    os.replace(temp, target)

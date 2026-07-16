@@ -10,7 +10,19 @@ REQUIRED_RESULT_FIELDS = {
     "dynamic_road_length_around_poi": {"road_length", "road_count"},
     "dynamic_administrative_area": {"area_sq_km"},
     "dynamic_university_count": {"point_count"},
+    "dynamic_poi_count": {"point_count"},
+    "dynamic_poi_service_area": {"coverage_sq_km"},
+    "dynamic_poi_density": {"point_count", "density_per_sq_km", "area_sq_km"},
+    "dynamic_poi_road_accessibility": {"nearest_road_m"},
+    "dynamic_road_density": {
+        "road_length_km", "density_km_per_sq_km", "area_sq_km",
+    },
     "fixture_adjacent_regions": set(),
+    "dynamic_multi_criteria_site_selection": {"rank", "site_score", "area_sq_km"},
+    "dynamic_advanced_site_selection": {
+        "rank", "site_score", "area_sq_km", "road_distance_m",
+        "transit_distance_m", "water_distance_m",
+    },
 }
 
 

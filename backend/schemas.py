@@ -29,6 +29,9 @@ class TaskResponse(BaseModel):
     finished_at: datetime | None = None
     error_code: str | None = None
     error_message: str | None = None
+    queue_position: int | None = None
+    worker_state: str | None = None
+    active_worker_task_id: str | None = None
 
 
 class TaskListResponse(BaseModel):
@@ -83,6 +86,10 @@ class ConversationResponse(BaseModel):
     turn_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class ConversationListResponse(BaseModel):
+    items: list[ConversationResponse]
 
 
 class ConversationMessageResponse(BaseModel):

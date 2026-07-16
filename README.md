@@ -1,132 +1,101 @@
-# GeoAI-QGIS State 5
+# GeoAI-QGIS Final — 多轮空间分析 Agent
 
-State 5 is the final multi-turn version of this project. It keeps the State 4 asynchronous
-FastAPI + Worker + MySQL backend and adds conversation memory, reference resolution and a
-durable LangGraph checkpointer.
+这是一个面向自然语言 GIS 分析的最终工程版：用户在浏览器中提出空间问题，FastAPI 将任务持久化到 MySQL，独立 Worker 通过 LangGraph 完成上下文解析、RAG 检索、计划校验、GIS 工具执行和结果总结，前端使用 SSE 展示节点级进度并在 Leaflet 中加载、下载结果图层。
 
-## What changed
+## 最终能力
 
-- Every task belongs to a `conversation_id` (also used as LangGraph `thread_id`).
-- MySQL stores complete conversations, messages and structured memory.
-- SQLite Checkpointer stores LangGraph thread checkpoints under `outputs/checkpoints/`.
-- The context resolver can inherit a region from earlier turns or ask for clarification.
-- Recent messages, a bounded old-message summary and structured slots are stored separately.
-- An adjacency workflow was added for the three-turn Nanjing acceptance scenario.
+- 多轮会话：同一 `conversation_id` 下继承区域、POI 类型、距离和上一次结果，可继续说“改成 2 公里”“再计算其中的主要道路长度”。
+- 语义 RAG：本地 BGE Embedding + Chroma，可选 BGE Reranker，为规划器检索工具说明和任务约束。
+- 异步执行：FastAPI 只接收任务；Worker 使用 MySQL 任务表原子认领、执行和回写，避免长耗时 GIS 任务阻塞接口。
+- Redis 辅助层：镜像 SSE 事件、维护 Worker 租约、缓存成功结果；Redis 不可用时自动退回 MySQL、JSONL 进度文件和本地心跳。
+- 可视化交付：多轮聊天、任务时间线、地图图层、GeoPackage 下载和失败原因提示。
+- 工程保护：Pydantic/工作流 Schema 双重校验、目录白名单、超时/重试/道路查询预算、幂等请求、过期队列清理和就绪检查。
+- 稳定数据层：内置江苏 OSM PBF 快照和南京标准化离线包；南京边界、11 类 POI、主干道路和水系不依赖公网，其他江苏区域回退到本地 PBF，最后才使用带缓存、分块和熔断的网络源。
 
-RAG and memory are different subsystems. Chroma retrieves GIS knowledge for planning; MySQL
-and the Checkpointer preserve user-specific conversation context.
+## 支持的空间分析
 
-## Supported tasks
+1. 行政区面积与相邻行政区；
+2. POI 数量、服务区、栅格密度；
+3. 主要道路密度、POI 到道路最近距离、POI 周边主要道路长度；
+4. 多条件与高级设施选址；
+5. POI 最近邻/设施间距分析；
+6. 服务覆盖盲区分析；
+7. 500/1000/2000 米多环服务覆盖分析。
 
-1. Administrative area: `帮我计算南京市的面积`
-2. Adjacent regions: `它周围有哪些城市？`
-3. University count: `再统计这里面的高校数量`
-4. Road length around all OSM universities: `统计南京市所有大学附近500米道路总长度`
+道路分析只获取 OSM `motorway/trunk/primary/secondary` 及其 link，排除住宅和支路。默认数据来自本地 OSM 快照，结果可复现但不是实时路网，也不是测绘成果。
 
-The adjacency task uses `data/fixtures/nanjing_neighbor_cities.gpkg`, a bundled GADM 4.1
-academic test fixture. It is deterministic for project evaluation but may differ from current
-official administrative divisions. The other tasks use allowlisted OpenStreetMap services.
+## 数据获取与离线包
 
-## Architecture
+默认 `auto` 级联为：`outputs/data_cache` 命中 → `data/osm/nanjing` 标准化离线包 → `data/osm/jiangsu-latest.osm.pbf` → 受控网络回退。南京常用任务首次运行无需访问 Nominatim、Overpass 或矢量瓦片；结果会写入快照时间并明确说明“非实时官方统计”。
 
-```text
-Client / Swagger / CLI
-  -> FastAPI creates task + conversation message in MySQL
-  -> Worker claims task
-  -> outer Conversation LangGraph
-       -> context_resolver
-       -> clarify OR inner GIS LangGraph
-  -> inner GIS LangGraph
-       -> Chroma retrieval + reranking
-       -> constrained planner + schema validation
-       -> tool execution + deterministic evaluation
-       -> LLM result summary
-  -> MySQL persists result, messages and structured slots
-  -> SQLiteSaver persists the LangGraph thread checkpoint
-```
-
-## Installation
-
-Clone the repository and use a Python environment that can access QGIS:
+如替换了江苏 PBF，可重建南京离线包：
 
 ```powershell
-git clone https://github.com/Hzy-qq/GeoAI-QGIS.git
-cd GeoAI-QGIS
+python scripts\build_osm_offline_pack.py
+```
+
+超出江苏快照范围时，网络层仍采用持久化整层/分块缓存、原子写入、端点熔断、指数退避、POI 分块续跑和有限完整度降级。具体数据口径见 [数据源说明](data/DATA_SOURCES.md)。
+
+## 核心链路
+
+```text
+浏览器 -> POST /api/v1/tasks -> MySQL(PENDING)
+                              -> Worker 原子认领
+                              -> 会话 LangGraph
+                                 -> 上下文解析/追问
+                                 -> GIS LangGraph
+                                    -> BGE/Chroma 检索
+                                    -> LLM/规则规划
+                                    -> Schema 校验
+                                    -> QGIS/Python 工具
+                                    -> 确定性质量检查
+                                    -> LLM/模板总结
+                              -> MySQL + Redis 缓存 + 结果图层
+浏览器 <- SSE 进度 / JSON 结果 / GeoPackage 下载
+```
+
+MySQL 是任务、会话和结果的真实数据源；Redis 是可丢失、可重建的加速层，不承担最终持久化。
+
+## 快速运行
+
+```powershell
+cd "F:\研一\codex\Agent项目\final\GeoAI-QGIS_Final"
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 notepad .env
-```
-
-Set `LLM_API_KEY`, `QGIS_PROCESS_CMD`, the two MySQL passwords and `DATABASE_URL` in `.env`.
-Do not commit `.env`.
-
-Start MySQL with Docker Compose. Stop any existing service already using port 3306 first:
-
-```powershell
-docker compose up -d mysql
-docker compose ps
-```
-
-Build the State 5 Chroma collection once:
-
-```powershell
+docker-compose --env-file .env up -d mysql redis
 python scripts\build_knowledge.py
-```
-
-## Run
-
-Terminal 1:
-
-```powershell
 python scripts\run_api.py
 ```
 
-Terminal 2:
+`.env` 至少要配置 DeepSeek API Key、QGIS `qgis_process` 路径、MySQL 密码及匹配的 `DATABASE_URL`。打开：
+
+- 前端：`http://127.0.0.1:8000/`
+- Swagger：`http://127.0.0.1:8000/docs`
+- 就绪检查：`http://127.0.0.1:8000/health/ready`
+
+`run_api.py` 默认同时启动一个常驻 Worker；生产部署可分别运行：
 
 ```powershell
+python scripts\run_api.py --api-only
 python scripts\run_worker.py
 ```
 
-Open `http://127.0.0.1:8000/docs`.
-
-1. Call `POST /api/v1/conversations` and keep the returned `conversation_id`.
-2. Call `POST /api/v1/tasks` with the first query and that `conversation_id`.
-3. Poll `GET /api/v1/tasks/{task_id}` and read `GET /api/v1/tasks/{task_id}/result`.
-4. Submit later queries with the same `conversation_id`.
-5. Inspect memory using `GET /api/v1/conversations/{conversation_id}` and `/messages`.
-
-Example task body:
-
-```json
-{
-  "query": "它周围有哪些城市？",
-  "user_id": "demo-user",
-  "conversation_id": "the-id-returned-by-the-conversation-api"
-}
-```
-
-For a local interactive session:
-
-```powershell
-python scripts\run_cli.py
-```
-
-The CLI prints its conversation ID. Restore it later with
-`scripts\run_cli.py --conversation-id <id>`.
-
-## Tests
+## 验证
 
 ```powershell
 python scripts\evaluate.py
+python scripts\evaluate.py --retrieval
 python scripts\evaluate.py --check-runtime
 ```
 
-The offline suite covers API idempotency, conversation isolation and clarification, schema
-guardrails, workspace path safety, execution retry bounds, result evaluation and the bundled
-Nanjing adjacency topology workflow. Live LLM/network evaluation remains opt-in.
+- 本次离线回归：75 项测试通过。
+- BGE 检索集：6 个案例，Recall@4 = 0.917，MRR = 1.000。
+- 关闭业务缓存的离线数据层回放：南京边界 0.952 s、地铁站 0.089 s、主干道路 0.293 s、水系 0.206 s。
+- 两条真实 LangGraph 端到端回放通过：南京地铁站密度（260 个站点要素、308 个网格）与高校周边 1 km 主干道路长度（923.84 km）；两者均通过 Evaluator，且未访问 Overpass。
+- `--check-runtime` 会额外检查 MySQL、Redis、Chroma、QGIS 和 Worker，必须在服务已启动时执行。
+- DeepSeek 与外部 OSM 网络刷新保持显式 opt-in，避免把供应商波动误判成代码回归；南京默认演示不以公网 OSM 为硬依赖。
 
-## Repository safety
+完整架构、降级策略、案例和学习路线见 [最终工程说明](docs/FINAL_ARCHITECTURE_AND_GUIDE.md)，发布验证边界见 [验证报告](docs/FINAL_VALIDATION_REPORT.md)。
 
-`.env`, MySQL data, Chroma indexes, checkpoints, downloaded OSM data and task outputs are not
-committed. Only `.env.example`, source code, tests and the small licensed evaluation fixture are
-kept in the project.
+> 安全提示：不要提交 `.env`、模型缓存、数据库卷、任务输出以及 `docs` 下的个人简历/面试材料。

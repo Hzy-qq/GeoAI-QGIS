@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from .dataset_catalog import SUPPORTED_POI_TYPES
+
 
 def _tool(
     backend: str,
@@ -41,22 +43,44 @@ TOOL_REGISTRY = {
     ),
     "download_osm_pois": _tool(
         "python", "python:download_osm_pois",
-        "Download allowlisted OSM university/college POIs inside a boundary.",
+        "Download one allowlisted OSM POI category inside a boundary.",
         ["BOUNDARY", "POI_TYPE", "OUTPUT"], [],
-        {"BOUNDARY": PATH, "POI_TYPE": {"type": "string", "enum": ["university"]}, "OUTPUT": PATH},
+        {
+            "BOUNDARY": PATH,
+            "POI_TYPE": {"type": "string", "enum": list(SUPPORTED_POI_TYPES)},
+            "OUTPUT": PATH,
+        },
     ),
     "download_osm_roads": _tool(
         "python", "python:download_osm_roads",
-        "Download allowlisted OSM highway ways around university POIs in an analysis area.",
-        ["AREA", "POINTS", "REGION_NAME", "POI_TYPE", "DISTANCE", "OUTPUT"], [],
+        "Download allowlisted OSM main-road ways around POIs in an analysis area.",
+        ["AREA", "POINTS", "REGION_NAME", "POI_TYPE", "DISTANCE", "ROAD_LEVEL", "OUTPUT"], [],
         {
             "AREA": PATH,
             "POINTS": PATH,
             "REGION_NAME": STRING,
-            "POI_TYPE": {"type": "string", "enum": ["university"]},
+            "POI_TYPE": {"type": "string", "enum": list(SUPPORTED_POI_TYPES)},
             "DISTANCE": {"type": "number", "exclusiveMinimum": 0},
+            "ROAD_LEVEL": {"type": "string", "enum": ["main"]},
             "OUTPUT": PATH,
         },
+    ),
+    "download_osm_roads_in_area": _tool(
+        "python", "python:download_osm_roads_in_area",
+        "Download main roads inside an analysis area.",
+        ["AREA", "REGION_NAME", "ROAD_LEVEL", "OUTPUT"], [],
+        {
+            "AREA": PATH,
+            "REGION_NAME": STRING,
+            "ROAD_LEVEL": {"type": "string", "enum": ["main"]},
+            "OUTPUT": PATH,
+        },
+    ),
+    "download_osm_water": _tool(
+        "python", "python:download_osm_water",
+        "Download closed OSM water polygons inside a boundary.",
+        ["BOUNDARY", "OUTPUT"], [],
+        {"BOUNDARY": PATH, "OUTPUT": PATH},
     ),
     "validate_dataset": _tool(
         "python", "python:validate_dataset",
@@ -129,6 +153,111 @@ TOOL_REGISTRY = {
         "python", "python:count_points_in_polygon", "Count point features inside polygons.",
         ["POLYGONS", "POINTS", "COUNT_FIELD", "OUTPUT"], [],
         {"POLYGONS": PATH, "POINTS": PATH, "COUNT_FIELD": STRING, "OUTPUT": PATH},
+    ),
+    "multi_criteria_site_selection": _tool(
+        "python", "python:multi_criteria_site_selection",
+        "Generate and rank candidate grid cells using road access, facility access and boundary clearance.",
+        ["BOUNDARY", "FACILITIES", "ROADS", "OUTPUT"],
+        [
+            "CELL_SIZE", "TOP_N", "ROAD_WEIGHT", "FACILITY_WEIGHT", "INTERIOR_WEIGHT",
+            "MAX_ROAD_DISTANCE", "MAX_FACILITY_DISTANCE",
+        ],
+        {
+            "BOUNDARY": PATH,
+            "FACILITIES": PATH,
+            "ROADS": PATH,
+            "OUTPUT": PATH,
+            "CELL_SIZE": {"type": "number", "exclusiveMinimum": 0},
+            "TOP_N": POSITIVE_INT,
+            "ROAD_WEIGHT": {"type": "number", "minimum": 0},
+            "FACILITY_WEIGHT": {"type": "number", "minimum": 0},
+            "INTERIOR_WEIGHT": {"type": "number", "minimum": 0},
+            "MAX_ROAD_DISTANCE": {"type": "number", "exclusiveMinimum": 0},
+            "MAX_FACILITY_DISTANCE": {"type": "number", "exclusiveMinimum": 0},
+        },
+    ),
+    "point_density_grid": _tool(
+        "python", "python:point_density_grid",
+        "Build a clipped grid and calculate POI count and density per square kilometre.",
+        ["BOUNDARY", "POINTS", "OUTPUT"], ["CELL_SIZE"],
+        {
+            "BOUNDARY": PATH,
+            "POINTS": PATH,
+            "OUTPUT": PATH,
+            "CELL_SIZE": {"type": "number", "exclusiveMinimum": 0},
+        },
+    ),
+    "line_density_grid": _tool(
+        "python", "python:line_density_grid",
+        "Build a clipped grid and calculate road length and density per square kilometre.",
+        ["BOUNDARY", "LINES", "OUTPUT"], ["CELL_SIZE"],
+        {
+            "BOUNDARY": PATH,
+            "LINES": PATH,
+            "OUTPUT": PATH,
+            "CELL_SIZE": {"type": "number", "exclusiveMinimum": 0},
+        },
+    ),
+    "nearest_distance_to_features": _tool(
+        "python", "python:nearest_distance_to_features",
+        "Calculate the nearest metric distance from each input feature to target features.",
+        ["INPUT", "TARGET", "DISTANCE_FIELD", "OUTPUT"], [],
+        {
+            "INPUT": PATH,
+            "TARGET": PATH,
+            "DISTANCE_FIELD": STRING,
+            "OUTPUT": PATH,
+        },
+    ),
+    "nearest_neighbor_analysis": _tool(
+        "python", "python:nearest_neighbor_analysis",
+        "Calculate each POI's nearest-neighbour distance and summary statistics.",
+        ["INPUT", "DISTANCE_FIELD", "OUTPUT"], [],
+        {"INPUT": PATH, "DISTANCE_FIELD": STRING, "OUTPUT": PATH},
+    ),
+    "service_gap_analysis": _tool(
+        "python", "python:service_gap_analysis",
+        "Subtract dissolved service coverage from a boundary and quantify uncovered area.",
+        ["BOUNDARY", "COVERAGE", "DISTANCE", "OUTPUT"], [],
+        {
+            "BOUNDARY": PATH, "COVERAGE": PATH,
+            "DISTANCE": {"type": "number", "exclusiveMinimum": 0},
+            "OUTPUT": PATH,
+        },
+    ),
+    "multi_ring_service_analysis": _tool(
+        "python", "python:multi_ring_service_analysis",
+        "Build cumulative service rings and measure coverage and marginal gain.",
+        ["BOUNDARY", "POINTS", "DISTANCES", "OUTPUT"], [],
+        {"BOUNDARY": PATH, "POINTS": PATH, "DISTANCES": STRING, "OUTPUT": PATH},
+    ),
+    "advanced_site_selection": _tool(
+        "python", "python:advanced_site_selection",
+        "Rank candidate cells using roads, transit, facilities, water avoidance and boundary clearance.",
+        ["BOUNDARY", "FACILITIES", "TRANSIT", "ROADS", "WATER", "OUTPUT"],
+        [
+            "CELL_SIZE", "TOP_N", "ROAD_WEIGHT", "TRANSIT_WEIGHT",
+            "FACILITY_WEIGHT", "INTERIOR_WEIGHT", "MAX_ROAD_DISTANCE",
+            "MAX_TRANSIT_DISTANCE", "MAX_FACILITY_DISTANCE", "MIN_WATER_DISTANCE",
+        ],
+        {
+            "BOUNDARY": PATH,
+            "FACILITIES": PATH,
+            "TRANSIT": PATH,
+            "ROADS": PATH,
+            "WATER": PATH,
+            "OUTPUT": PATH,
+            "CELL_SIZE": {"type": "number", "exclusiveMinimum": 0},
+            "TOP_N": POSITIVE_INT,
+            "ROAD_WEIGHT": {"type": "number", "minimum": 0},
+            "TRANSIT_WEIGHT": {"type": "number", "minimum": 0},
+            "FACILITY_WEIGHT": {"type": "number", "minimum": 0},
+            "INTERIOR_WEIGHT": {"type": "number", "minimum": 0},
+            "MAX_ROAD_DISTANCE": {"type": "number", "exclusiveMinimum": 0},
+            "MAX_TRANSIT_DISTANCE": {"type": "number", "exclusiveMinimum": 0},
+            "MAX_FACILITY_DISTANCE": {"type": "number", "exclusiveMinimum": 0},
+            "MIN_WATER_DISTANCE": {"type": "number", "minimum": 0},
+        },
     ),
 }
 
