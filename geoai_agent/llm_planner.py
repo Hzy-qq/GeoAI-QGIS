@@ -4,6 +4,14 @@ import json
 from typing import Any
 
 from .config import env_bool, env_str
+from .context_resolver import (
+    SUPPORTED_CONTEXT_TASKS,
+    classify_task,
+    extract_distance_meters,
+    extract_poi_type,
+    extract_region,
+)
+from .dataset_catalog import SUPPORTED_POI_TYPES
 from .llm_client import (
     LLMClientError,
     create_json_response,
@@ -30,10 +38,18 @@ def build_planner_output_schema() -> dict[str, Any]:
                 "enum": [
                     "road_length_around_poi", "administrative_area",
                     "university_count", "adjacent_regions", "unsupported",
+                    "multi_criteria_site_selection",
+                    "poi_count", "poi_service_area", "poi_density",
+                    "poi_road_accessibility", "road_density",
+                    "advanced_site_selection", "poi_nearest_neighbor",
+                    "service_gap_analysis", "multi_ring_service_analysis",
                 ],
             },
             "region_name": {"type": "string"},
-            "poi_type": {"type": "string", "enum": ["university", ""]},
+            "poi_type": {
+                "type": "string",
+                "enum": [*SUPPORTED_POI_TYPES, ""],
+            },
             "distance_meters": {"type": "integer", "minimum": 0, "maximum": 20_000},
             "data_requirements": {
                 "type": "array",
@@ -41,7 +57,8 @@ def build_planner_output_schema() -> dict[str, Any]:
                     "type": "string",
                     "enum": [
                         "administrative_boundary", "university_pois", "road_network",
-                        "neighbor_boundaries",
+                        "neighbor_boundaries", "osm_pois", "subway_station_pois",
+                        "main_road_network", "water_areas",
                     ],
                 },
             },
@@ -80,7 +97,7 @@ def _workflow_examples() -> str:
             {"tool": "validate_dataset", "params": {"INPUT": "workspace://raw/university_pois.gpkg", "GEOMETRY_TYPE": "point"}},
             {"tool": "auto_reproject_layer", "params": {"INPUT": "workspace://raw/university_pois.gpkg", "OUTPUT": "workspace://processed/university_pois_projected.gpkg"}},
             {"tool": "buffer", "params": {"INPUT": "workspace://processed/university_pois_projected.gpkg", "DISTANCE": 500, "SEGMENTS": 12, "DISSOLVE": True, "OUTPUT": "workspace://processed/university_buffers.gpkg"}},
-            {"tool": "download_osm_roads", "params": {"AREA": "workspace://processed/university_buffers.gpkg", "POINTS": "workspace://raw/university_pois.gpkg", "REGION_NAME": "南京市", "POI_TYPE": "university", "DISTANCE": 500, "OUTPUT": "workspace://raw/roads.gpkg"}},
+            {"tool": "download_osm_roads", "params": {"AREA": "workspace://processed/university_buffers.gpkg", "POINTS": "workspace://raw/university_pois.gpkg", "REGION_NAME": "南京市", "POI_TYPE": "university", "DISTANCE": 500, "ROAD_LEVEL": "main", "OUTPUT": "workspace://raw/roads.gpkg"}},
             {"tool": "validate_dataset", "params": {"INPUT": "workspace://raw/roads.gpkg", "GEOMETRY_TYPE": "line"}},
             {"tool": "reproject_to_match", "params": {"INPUT": "workspace://raw/roads.gpkg", "REFERENCE": "workspace://processed/university_buffers.gpkg", "OUTPUT": "workspace://processed/roads_projected.gpkg"}},
             {"tool": "clip", "params": {"INPUT": "workspace://processed/roads_projected.gpkg", "OVERLAY": "workspace://processed/university_buffers.gpkg", "OUTPUT": "workspace://processed/roads_clip.gpkg"}},
@@ -107,8 +124,35 @@ def _workflow_examples() -> str:
         ],
     }
     adjacent = build_dynamic_plan("adjacent_regions", "南京市")["workflow"]
+    site_selection = build_dynamic_plan(
+        "multi_criteria_site_selection", "南京市", distance_meters=3000
+    )["workflow"]
+    generic_count = build_dynamic_plan(
+        "poi_count", "南京市", poi_type="hospital"
+    )["workflow"]
+    service_area = build_dynamic_plan(
+        "poi_service_area", "南京市", poi_type="hospital", distance_meters=1000
+    )["workflow"]
+    poi_density = build_dynamic_plan(
+        "poi_density", "南京市", poi_type="subway_station"
+    )["workflow"]
+    road_density = build_dynamic_plan("road_density", "南京市")["workflow"]
+    advanced_selection = build_dynamic_plan(
+        "advanced_site_selection", "南京市", distance_meters=1000
+    )["workflow"]
     return json.dumps(
-        {"road": road, "area": area, "count": count, "adjacent": adjacent},
+        {
+            "road": road,
+            "area": area,
+            "count": count,
+            "adjacent": adjacent,
+            "site_selection": site_selection,
+            "generic_count": generic_count,
+            "service_area": service_area,
+            "poi_density": poi_density,
+            "road_density": road_density,
+            "advanced_selection": advanced_selection,
+        },
         ensure_ascii=False,
         indent=2,
     )
@@ -124,11 +168,25 @@ Supported tasks:
 2. administrative_area: area of one named administrative region.
 3. university_count: count OSM university/college POIs in one named region.
 4. adjacent_regions: find neighboring regions using the bundled boundary topology fixture.
+5. multi_criteria_site_selection: rank candidate grid cells by road access, university access
+   and distance from the administrative boundary. Use the exact template and 3000 metres.
+6. poi_count: count a supported OSM POI category.
+7. poi_service_area: create a dissolved, boundary-clipped service buffer around POIs.
+8. poi_density: calculate POI density on a grid.
+9. poi_road_accessibility: calculate each POI's nearest-road distance.
+10. road_density: calculate road length density on a grid.
+11. advanced_site_selection: campus selection using main roads, subway stations,
+    universities, water avoidance and boundary clearance.
+12. poi_nearest_neighbor: calculate nearest-neighbour distances between POIs.
+13. service_gap_analysis: find areas outside a POI service buffer.
+14. multi_ring_service_analysis: compare 500m, 1000m and 2000m POI service rings.
 
 For nearby/surrounding road length without a distance, use 1000 metres. Convert km to m.
-Only poi_type=university is supported. Use the exact workflow templates below. Replace only
-REGION_NAME and buffer DISTANCE. Keep every workspace:// path, tool order, DISSOLVE=true,
-field name and other parameter unchanged. Never add a URL or local absolute path.
+All road-related workflows must use ROAD_LEVEL=main. Here, main roads are OSM motorway,
+trunk, primary and secondary roads (including link roads); local streets are excluded.
+Supported POI types are: {', '.join(SUPPORTED_POI_TYPES)}. Use the exact workflow templates.
+Keep every workspace:// path, tool order, DISSOLVE=true, field name and other parameter
+unchanged. Never add a URL or local absolute path.
 
 Templates:
 {_workflow_examples()}
@@ -178,10 +236,23 @@ def plan_workflow_with_llm(
     extra_context: str | None = None,
     feedback: str | None = None,
 ) -> dict:
-    if "相邻的地级行政区" in user_query:
-        region = user_query.split("查询", 1)[-1].split("相邻", 1)[0].strip()
-        plan = build_dynamic_plan("adjacent_regions", region)
-        plan["planner_mode"] = "deterministic_context_route"
+    task_type = classify_task(user_query)
+    region = extract_region(user_query)
+    if task_type in SUPPORTED_CONTEXT_TASKS and region:
+        default_distance = {
+            "road_length_around_poi": 1000,
+            "poi_service_area": 1000,
+            "service_gap_analysis": 1000,
+            "multi_criteria_site_selection": 3000,
+            "advanced_site_selection": 1000,
+        }.get(task_type, 0)
+        plan = build_dynamic_plan(
+            task_type,
+            region,
+            distance_meters=extract_distance_meters(user_query, default_distance),
+            poi_type=extract_poi_type(user_query),
+        )
+        plan["planner_mode"] = "deterministic_capability_route"
         validate_planner_output(plan)
         return plan
     schema = build_planner_output_schema()

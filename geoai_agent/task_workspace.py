@@ -46,7 +46,7 @@ class TaskWorkspace:
         path_keys = {
             "INPUT", "OUTPUT", "OVERLAY", "POLYGONS", "LINES", "POINTS",
             "TARGET", "REFERENCE", "AREA",
-            "BOUNDARY",
+            "BOUNDARY", "FACILITIES", "TRANSIT", "ROADS", "WATER",
         }
         for key, value in params.items():
             if key in path_keys and isinstance(value, str):

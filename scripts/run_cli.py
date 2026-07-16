@@ -27,7 +27,7 @@ def execute_turn(service: TaskService, conversation_id: str, query: str, user_id
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the State 5 multi-turn CLI.")
+    parser = argparse.ArgumentParser(description="Run the GeoAI-QGIS Final multi-turn CLI.")
     parser.add_argument("query", nargs="*")
     parser.add_argument("--conversation-id")
     parser.add_argument("--user-id", default="cli-user")

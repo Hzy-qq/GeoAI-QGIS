@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from geoai_agent.config import env_int
 from geoai_agent.executor import save_trace
+from geoai_agent.redis_bus import cache_get_json, cache_set_json
 from geoai_agent.task_workspace import TaskWorkspace
 
 from .database import Database
@@ -16,6 +17,7 @@ from .models import AgentTask, Artifact, Conversation, ConversationTurn, utc_now
 from .repository import (
     add_conversation_message,
     claim_next_task,
+    expire_stale_pending_tasks,
     get_artifact,
     get_by_idempotency,
     get_conversation,
@@ -23,9 +25,13 @@ from .repository import (
     get_task,
     get_task_conversation,
     list_artifacts,
+    list_conversations,
     list_conversation_messages,
     list_tasks,
     mark_task_failed,
+    mark_pending_task_failed,
+    mark_running_task_failed,
+    pending_queue_position,
     recover_stale_tasks,
     replace_task_details,
 )
@@ -50,7 +56,12 @@ def _loads(value: str | None, default: Any) -> Any:
         return default
 
 
-def task_dict(task: AgentTask, conversation_id: str, reused: bool = False) -> dict[str, Any]:
+def task_dict(
+    task: AgentTask,
+    conversation_id: str,
+    reused: bool = False,
+    queue_position: int | None = None,
+) -> dict[str, Any]:
     return {
         "task_id": task.id,
         "conversation_id": conversation_id,
@@ -65,6 +76,7 @@ def task_dict(task: AgentTask, conversation_id: str, reused: bool = False) -> di
         "finished_at": task.finished_at,
         "error_code": task.error_code,
         "error_message": task.error_message,
+        "queue_position": queue_position,
     }
 
 
@@ -139,6 +151,13 @@ class TaskService:
                 raise ConversationNotFoundError(conversation_id)
             return conversation_dict(conversation)
 
+    def list_conversations(self, user_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        with self.database.session() as session:
+            return [
+                conversation_dict(item)
+                for item in list_conversations(session, user_id, limit)
+            ]
+
     def get_conversation_messages(self, conversation_id: str) -> list[dict[str, Any]]:
         with self.database.session() as session:
             if get_conversation(session, conversation_id) is None:
@@ -162,7 +181,12 @@ class TaskService:
                 turn = get_conversation_turn(session, existing.id)
                 if turn is None:
                     raise RuntimeError("Idempotent task is missing its conversation turn.")
-                return task_dict(existing, turn.conversation_id, reused=True)
+                return task_dict(
+                    existing,
+                    turn.conversation_id,
+                    reused=True,
+                    queue_position=pending_queue_position(session, existing),
+                )
 
             conversation = get_conversation(session, conversation_id) if conversation_id else None
             if conversation_id and conversation is None:
@@ -212,9 +236,18 @@ class TaskService:
                 turn = get_conversation_turn(session, existing.id)
                 if turn is None:
                     raise RuntimeError("Idempotent task is missing its conversation turn.")
-                return task_dict(existing, turn.conversation_id, reused=True)
+                return task_dict(
+                    existing,
+                    turn.conversation_id,
+                    reused=True,
+                    queue_position=pending_queue_position(session, existing),
+                )
             session.refresh(task)
-            return task_dict(task, conversation.id)
+            return task_dict(
+                task,
+                conversation.id,
+                queue_position=pending_queue_position(session, task),
+            )
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         with self.database.session() as session:
@@ -222,7 +255,11 @@ class TaskService:
             turn = get_conversation_turn(session, task_id)
             if task is None or turn is None:
                 raise TaskNotFoundError(task_id)
-            return task_dict(task, turn.conversation_id)
+            return task_dict(
+                task,
+                turn.conversation_id,
+                queue_position=pending_queue_position(session, task),
+            )
 
     def list_tasks(self, limit: int, offset: int) -> list[dict[str, Any]]:
         with self.database.session() as session:
@@ -230,10 +267,19 @@ class TaskService:
             for task in list_tasks(session, limit, offset):
                 turn = get_conversation_turn(session, task.id)
                 if turn is not None:
-                    items.append(task_dict(task, turn.conversation_id))
+                    items.append(
+                        task_dict(
+                            task,
+                            turn.conversation_id,
+                            queue_position=pending_queue_position(session, task),
+                        )
+                    )
             return items
 
     def get_result(self, task_id: str) -> dict[str, Any]:
+        if cached := cache_get_json(f"task-result:{task_id}"):
+            cached["cache_backend"] = "redis"
+            return cached
         with self.database.session() as session:
             task = get_task(session, task_id)
             if task is None:
@@ -241,7 +287,7 @@ class TaskService:
             if task.status != "SUCCEEDED":
                 raise TaskNotReadyError(task.status)
             payload = _loads(task.result_payload, {})
-            return {
+            result = {
                 "task_id": task.id,
                 "status": task.status,
                 "answer": task.answer or "",
@@ -252,6 +298,9 @@ class TaskService:
                     for artifact in list_artifacts(session, task.id)
                 ],
             }
+            cache_set_json(f"task-result:{task_id}", result, ttl_seconds=900)
+            result["cache_backend"] = "mysql"
+            return result
 
     def get_public_trace(self, task_id: str) -> dict[str, Any]:
         with self.database.session() as session:
@@ -284,6 +333,28 @@ class TaskService:
         with self.database.session() as session:
             return recover_stale_tasks(session, stale_after_seconds)
 
+    def expire_pending(self, max_age_seconds: int) -> int:
+        with self.database.session() as session:
+            return expire_stale_pending_tasks(session, max_age_seconds)
+
+    def fail_pending_without_worker(self, task_id: str, detail: str) -> bool:
+        with self.database.session() as session:
+            return mark_pending_task_failed(
+                session,
+                task_id,
+                "WORKER_UNAVAILABLE",
+                detail,
+            )
+
+    def fail_interrupted_running_task(
+        self,
+        task_id: str,
+        worker_id: str,
+        detail: str,
+    ) -> bool:
+        with self.database.session() as session:
+            return mark_running_task_failed(session, task_id, worker_id, detail)
+
     def execute_claimed(self, task_id: str, query: str) -> dict[str, Any]:
         try:
             from geoai_agent.conversation_agent import load_inner_trace, run_conversation_turn
@@ -315,7 +386,7 @@ class TaskService:
             if trace is None:
                 workspace = TaskWorkspace.create(task_id)
                 trace = {
-                    "agent": "GeoAI State 5 Conversation Agent",
+                    "agent": "GeoAI-QGIS Final Conversation Agent",
                     "task_id": task_id,
                     "workspace": str(workspace.root),
                     "user_query": query,

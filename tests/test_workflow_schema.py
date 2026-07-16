@@ -37,6 +37,16 @@ class WorkflowSchemaTests(unittest.TestCase):
         with self.assertRaises(WorkflowSchemaError):
             validate_planner_output(plan)
 
+    def test_rejects_all_road_scope(self) -> None:
+        plan = build_dynamic_plan("road_length_around_poi", "南京市", distance_meters=500)
+        road_step = next(
+            step for step in plan["workflow"]["steps"]
+            if step["tool"] == "download_osm_roads"
+        )
+        road_step["params"]["ROAD_LEVEL"] = "all"
+        with self.assertRaises(WorkflowSchemaError):
+            validate_planner_output(plan)
+
 
 if __name__ == "__main__":
     unittest.main()

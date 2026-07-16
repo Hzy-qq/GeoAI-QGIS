@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeoAI-QGIS 多功能 GIS Agent</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      color-scheme: dark; --bg:#050a13; --panel:#0a1322e8; --card:#111f35;
+      --line:#203654; --accent:#42e6b7; --accent2:#6594ff; --text:#f4f8ff;
+      --muted:#91a6c3; --danger:#fb7185; --shadow:0 20px 55px #02061180;
+      --glass:linear-gradient(145deg,#13233be8,#0a1629e8);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:1080px; font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+    body::before { content:''; position:fixed; inset:0; pointer-events:none; background:radial-gradient(circle at 8% 12%,#1b876c24,transparent 28%),radial-gradient(circle at 82% 10%,#315fbd24,transparent 32%); }
+    button,input,textarea { font:inherit; }
+    button { color:inherit; cursor:pointer; }
+    header { position:relative; z-index:900; height:68px; display:flex; align-items:center; justify-content:space-between; padding:0 22px; border-bottom:1px solid #27425f; background:#07111ee8; backdrop-filter:blur(18px); box-shadow:0 8px 30px #02071373; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:800; }
+    .brand i { width:34px; height:34px; border-radius:11px; background:linear-gradient(145deg,#42e6b7,#3676ff); box-shadow:0 0 24px #38cfa972; position:relative; }
+    .brand i::after { content:'⌁'; position:absolute; inset:0; display:grid; place-items:center; color:#04101a; font-style:normal; font-size:21px; font-weight:900; }
+    .brand small,.header-meta { color:var(--muted); font-weight:500; font-size:12px; }
+    .header-right { display:flex; gap:8px; align-items:center; }
+    .header-pill { padding:7px 10px; border:1px solid #294563; border-radius:999px; color:#b9cbe2; background:#0c1929; font-size:11px; }
+    .header-pill.live::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:6px; background:var(--accent); box-shadow:0 0 10px var(--accent); }
+    main { position:relative; height:calc(100vh - 68px); display:grid; grid-template-columns:240px 430px minmax(480px,1fr) 300px; }
+    .pane { min-width:0; min-height:0; border-right:1px solid var(--line); background:var(--panel); backdrop-filter:blur(15px); }
+    .scroll { overflow:auto; scrollbar-width:thin; scrollbar-color:#355175 transparent; }
+    .sidebar { padding:14px; }
+    .user-box { display:flex; gap:7px; margin-bottom:10px; }
+    input,textarea { width:100%; border:1px solid var(--line); border-radius:10px; background:#091528; color:var(--text); outline:none; }
+    input:focus,textarea:focus { border-color:var(--accent2); box-shadow:0 0 0 3px #4e8cff1f; }
+    input { padding:9px 10px; }
+    .primary,.secondary,.icon-btn { border:0; border-radius:11px; padding:10px 12px; background:linear-gradient(135deg,#25c997,#087b68); font-weight:750; box-shadow:0 10px 28px #087b683d; transition:.2s ease; }
+    .primary:hover { transform:translateY(-1px); filter:brightness(1.09); }
+    .primary:disabled { opacity:.55; transform:none; cursor:wait; }
+    .secondary { background:#14243d; border:1px solid var(--line); }
+    .new-chat { width:100%; margin:4px 0 14px; }
+    .section-title { margin:14px 2px 8px; color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
+    .conversation { padding:10px; border-radius:10px; margin:5px 0; border:1px solid transparent; cursor:pointer; }
+    .conversation:hover { background:#111f35; }
+    .conversation.active { background:linear-gradient(135deg,#17304a,#11233d); border-color:#3e6ea0; box-shadow:inset 3px 0 var(--accent); }
+    .conversation strong { display:block; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .conversation span { color:var(--muted); font-size:11px; }
+    .empty { color:var(--muted); font-size:12px; padding:10px 4px; }
+    .capability { display:inline-flex; align-items:center; padding:6px 8px; margin:3px 2px; border:1px solid #294a6b; border-radius:999px; color:#c5d4e8; font-size:11px; cursor:pointer; background:#0c1b2e; transition:.18s ease; }
+    .capability:hover { color:white; border-color:var(--accent2); background:#142945; transform:translateY(-1px); }
+    .chat-pane { display:grid; grid-template-rows:auto minmax(0,1fr) auto; background:#091425; }
+    .chat-head { padding:13px 16px; border-bottom:1px solid var(--line); }
+    .chat-head h2 { margin:0; font-size:15px; }
+    .chat-head p { margin:4px 0 0; color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #messages { padding:18px 14px 8px; overflow:auto; }
+    .message { display:flex; gap:8px; margin:0 0 15px; align-items:flex-start; }
+    .message.user { flex-direction:row-reverse; }
+    .avatar { flex:0 0 28px; width:28px; height:28px; border-radius:9px; display:grid; place-items:center; background:#203858; font-size:12px; font-weight:800; }
+    .user .avatar { background:#116e5b; }
+    .bubble { max-width:86%; border:1px solid #27405e; border-radius:5px 16px 16px 16px; padding:11px 13px; background:var(--glass); box-shadow:0 14px 36px #02081752; }
+    .user .bubble { background:#0f4f48; border-color:#167d6f; border-radius:14px 5px 14px 14px; }
+    .bubble .content { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.62; font-size:13px; }
+    .bubble .time { color:#7890ae; font-size:10px; margin-top:6px; }
+    .typing::after { content:' ···'; color:var(--accent); animation:blink 1.2s infinite; }
+    @keyframes blink { 50% { opacity:.25; } }
+    .artifact-list { border-top:1px solid #29415f; margin-top:9px; padding-top:8px; }
+    .artifact-list a { display:block; color:var(--accent); font-size:12px; margin:4px 0; text-decoration:none; }
+    .composer { border-top:1px solid var(--line); padding:10px 12px 12px; background:#0b172a; }
+    .composer textarea { min-height:72px; max-height:160px; resize:vertical; padding:10px 11px; line-height:1.45; }
+    .composer-row { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px; }
+    .composer-row span { color:var(--muted); font-size:10px; }
+    .send { min-width:104px; }
+    .map-pane { position:relative; background:#091528; }
+    #map { width:100%; height:100%; }
+    .map-hint { position:absolute; z-index:500; top:14px; left:52px; padding:9px 12px; border:1px solid #ffffff30; border-radius:11px; background:#07101ee8; backdrop-filter:blur(12px); box-shadow:var(--shadow); font-size:11px; color:#d5e3f5; }
+    .map-legend { position:absolute; z-index:500; left:14px; bottom:18px; padding:10px 12px; border:1px solid #ffffff2b; border-radius:12px; background:#07101ee8; color:#cbd9ea; font-size:11px; box-shadow:var(--shadow); }
+    .map-legend b { display:block; margin-bottom:5px; color:white; }
+    .map-legend i { display:inline-block; width:17px; height:8px; margin-right:6px; border-radius:3px; background:#42e6b766; border:1px solid #1ab88e; }
+    .progress { padding:14px; }
+    .status-card { border:1px solid #294563; border-radius:14px; background:var(--glass); padding:13px; box-shadow:0 14px 38px #02081740; }
+    .status-row { display:flex; justify-content:space-between; gap:10px; margin:6px 0; font-size:12px; }
+    .status-row span { color:var(--muted); }
+    .status-row b { color:var(--accent); max-width:160px; overflow:hidden; text-overflow:ellipsis; }
+    .event { position:relative; margin:8px 0; padding:10px 9px 10px 14px; border:1px solid #1d324e; border-radius:9px; background:#0b182c; font-size:11px; color:#d3dfef; }
+    .event::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:3px; background:var(--accent2); }
+    .event.failed::before { background:var(--danger); }
+    .event small { color:var(--muted); float:right; }
+    .downloads { margin-top:12px; }
+    .downloads a { color:var(--accent); display:block; font-size:12px; padding:6px 0; text-decoration:none; border-bottom:1px solid #172942; }
+    .leaflet-popup-content { color:#111827; max-height:230px; overflow:auto; }
+    @media(max-width:1450px) { main { grid-template-columns:190px 360px minmax(420px,1fr) 250px; } }
+    @media(max-width:1180px) { main { grid-template-columns:190px 350px minmax(480px,1fr); } .progress-pane { display:none; } }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i><span>GeoAI-QGIS <small>Final · 多功能空间分析 Agent</small></span></div>
+  <div class="header-right">
+    <span class="header-pill live">Agent 在线</span>
+    <span class="header-pill">LangGraph 双层编排</span>
+    <span class="header-pill">MySQL + Redis</span>
+    <span class="header-pill">SSE 实时进度</span>
+  </div>
+</header>
+<main>
+  <aside class="pane sidebar scroll">
+    <div class="user-box"><input id="user" value="demo-user" aria-label="用户 ID" /></div>
+    <button class="primary new-chat" id="newChat">＋ 新建会话</button>
+    <div class="section-title">最近会话</div>
+    <div id="conversations"><div class="empty">正在加载…</div></div>
+    <div class="section-title">能力示例（点击填入）</div>
+    <div id="capabilities">
+      <span class="capability" data-q="统计南京市医院数量">设施统计</span>
+      <span class="capability" data-q="分析南京市医院1公里服务覆盖范围">服务区</span>
+      <span class="capability" data-q="分析南京市医院1公里服务盲区">服务盲区</span>
+      <span class="capability" data-q="分析南京市医院多级服务圈">多级服务圈</span>
+      <span class="capability" data-q="分析南京市医院最近邻和平均间距">设施最近邻</span>
+      <span class="capability" data-q="分析南京市地铁站空间密度">POI 密度</span>
+      <span class="capability" data-q="分析南京市医院到最近道路的距离">道路可达性</span>
+      <span class="capability" data-q="分析南京市道路密度">道路密度</span>
+      <span class="capability" data-q="计算南京市面积">行政区面积</span>
+      <span class="capability" data-q="查找南京市相邻区域">相邻区域</span>
+      <span class="capability" data-q="统计南京市高校周边1公里道路总长度">周边道路</span>
+      <span class="capability" data-q="在南京市选择新校区，要求距主干路不超过1公里、靠近地铁并避开水域">综合选址</span>
+    </div>
+    <p class="empty">设施类型支持高校、学校、医院、诊所、药房、地铁站、公园、警察局、消防站、超市和充电站。</p>
+  </aside>
+
+  <section class="pane chat-pane">
+    <div class="chat-head">
+      <h2 id="chatTitle">新建 GIS 分析会话</h2>
+      <p id="chatContext">同一会话中可继续追问，如“把范围改为2公里”或“再看医院密度”。</p>
+    </div>
+    <div id="messages"><div class="empty">输入一个带区域名称的 GIS 分析需求开始对话。</div></div>
+    <div class="composer">
+      <textarea id="query" placeholder="例如：统计南京市医院数量，然后继续追问服务范围或密度…"></textarea>
+      <div class="composer-row"><span>Enter 发送 · Shift+Enter 换行</span><button class="primary send" id="run">发送并分析</button></div>
+    </div>
+  </section>
+
+  <section class="pane map-pane">
+    <div class="map-hint" id="mapHint">执行成功后自动加载结果图层</div>
+    <div class="map-legend"><b>分析结果图层</b><span><i></i>GeoPackage / GeoJSON</span></div>
+    <div id="map"></div>
+  </section>
+
+  <aside class="pane progress-pane progress scroll">
+    <div class="section-title">实时执行</div>
+    <div class="status-card">
+      <div class="status-row"><span>会话</span><b id="conversationStatus">未创建</b></div>
+      <div class="status-row"><span>任务</span><b id="task">未开始</b></div>
+      <div class="status-row"><span>状态</span><b id="status">-</b></div>
+    </div>
+    <div class="section-title">工作流节点</div>
+    <div id="events"><div class="empty">等待任务</div></div>
+    <div class="section-title">结果文件</div>
+    <div id="downloads" class="downloads"><div class="empty">暂无文件</div></div>
+  </aside>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const map = L.map('map').setView([32.06, 118.79], 10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom:19, attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
+
+  let conversationId = null;
+  let source = null;
+  let resultLayer = null;
+  let pendingBubble = null;
+  const storageKey = () => `geoai-conversation:${$('user').value.trim() || 'anonymous'}`;
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+  }
+  function shortTime(value) {
+    const normalized = (
+      typeof value === 'string' && !/[zZ]$|[+-]\d\d:\d\d$/.test(value)
+    ) ? `${value}Z` : value;
+    const d = normalized ? new Date(normalized) : new Date();
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('zh-CN', {hour12:false, month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+  }
+  function addMessage(role, content, options={}) {
+    if ($('messages').querySelector('.empty')) $('messages').innerHTML = '';
+    const row = document.createElement('div');
+    row.className = `message ${role}`;
+    row.innerHTML = `<div class="avatar">${role === 'user' ? '我' : 'AI'}</div><div class="bubble"><div class="content"></div><div class="time">${escapeHtml(shortTime(options.createdAt))}</div></div>`;
+    row.querySelector('.content').textContent = content;
+    if (options.pending) row.querySelector('.content').classList.add('typing');
+    $('messages').appendChild(row);
+    $('messages').scrollTop = $('messages').scrollHeight;
+    return row.querySelector('.bubble');
+  }
+  function setPending(content, failed=false) {
+    if (!pendingBubble) return;
+    const node = pendingBubble.querySelector('.content');
+    node.classList.remove('typing');
+    node.textContent = content;
+    if (failed) pendingBubble.style.borderColor = '#7f2d43';
+    $('messages').scrollTop = $('messages').scrollHeight;
+  }
+
+  async function api(url, options={}) {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      let detail = await response.text();
+      try { const parsed = JSON.parse(detail); detail = parsed.message || parsed.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    return response.json();
+  }
+  async function loadConversations(selectStored=true) {
+    const user = encodeURIComponent($('user').value.trim() || 'anonymous');
+    const data = await api(`/api/v1/conversations?user_id=${user}&limit=30`);
+    $('conversations').innerHTML = data.items.length ? '' : '<div class="empty">还没有历史会话</div>';
+    data.items.forEach(item => {
+      const node = document.createElement('div');
+      node.className = `conversation ${item.conversation_id === conversationId ? 'active' : ''}`;
+      node.innerHTML = `<strong>${escapeHtml(item.title)}</strong><span>${item.turn_count} 轮 · ${escapeHtml(shortTime(item.updated_at))}</span>`;
+      node.onclick = () => openConversation(item.conversation_id);
+      $('conversations').appendChild(node);
+    });
+    if (selectStored && !conversationId) {
+      const stored = localStorage.getItem(storageKey());
+      if (stored && data.items.some(item => item.conversation_id === stored)) await openConversation(stored);
+    }
+  }
+  async function createConversation(title='新建 GIS 分析会话') {
+    const data = await api('/api/v1/conversations', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:$('user').value.trim() || 'anonymous', title})
+    });
+    conversationId = data.conversation_id;
+    localStorage.setItem(storageKey(), conversationId);
+    updateConversationHeader(data);
+    $('messages').innerHTML = '<div class="empty">新会话已创建，请输入分析需求。</div>';
+    await loadConversations(false);
+    return data;
+  }
+  async function openConversation(id) {
+    if (source) source.close();
+    conversationId = id;
+    localStorage.setItem(storageKey(), id);
+    const [info, messages] = await Promise.all([
+      api(`/api/v1/conversations/${id}`),
+      api(`/api/v1/conversations/${id}/messages`)
+    ]);
+    updateConversationHeader(info);
+    $('messages').innerHTML = '';
+    if (!messages.items.length) $('messages').innerHTML = '<div class="empty">该会话暂无消息。</div>';
+    messages.items.forEach(item => addMessage(item.role === 'user' ? 'user' : 'assistant', item.content, {createdAt:item.created_at}));
+    await loadConversations(false);
+  }
+  function updateConversationHeader(info) {
+    $('chatTitle').textContent = info.title || 'GIS 分析会话';
+    const region = info.state && info.state.region_name ? `当前区域：${info.state.region_name}` : '尚未确定分析区域';
+    $('chatContext').textContent = `${region} · 已记录 ${info.turn_count || 0} 轮消息，可继续追问和修改条件`;
+    $('conversationStatus').textContent = info.conversation_id.slice(0, 8);
+  }
+  function resetConversation() {
+    if (source) source.close();
+    conversationId = null; pendingBubble = null;
+    localStorage.removeItem(storageKey());
+    $('chatTitle').textContent = '新建 GIS 分析会话';
+    $('chatContext').textContent = '同一会话中可继续追问，如“把范围改为2公里”或“再看医院密度”。';
+    $('conversationStatus').textContent = '未创建';
+    $('messages').innerHTML = '<div class="empty">输入一个带区域名称的 GIS 分析需求开始对话。</div>';
+    document.querySelectorAll('.conversation').forEach(node => node.classList.remove('active'));
+    $('query').focus();
+  }
+
+  async function runAnalysis() {
+    const query = $('query').value.trim();
+    if (!query || $('run').disabled) return;
+    $('run').disabled = true;
+    try {
+      if (!conversationId) await createConversation(query.slice(0, 30));
+      addMessage('user', query);
+      pendingBubble = addMessage('assistant', '正在等待 Worker 领取任务并生成 GIS 工作流', {pending:true});
+      $('query').value = '';
+      $('events').innerHTML = '';
+      $('downloads').innerHTML = '<div class="empty">任务执行中…</div>';
+      const task = await api('/api/v1/tasks', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},
+        body:JSON.stringify({query, user_id:$('user').value.trim() || 'anonymous', conversation_id:conversationId})
+      });
+      $('task').textContent = task.task_id.slice(0, 8);
+      $('status').textContent = task.status;
+      listen(task.task_id);
+    } catch (error) {
+      if (!pendingBubble) pendingBubble = addMessage('assistant', '', {});
+      setPending(`请求失败：${error.message}`, true);
+      $('run').disabled = false;
+    }
+  }
+  function listen(taskId) {
+    if (source) source.close();
+    source = new EventSource(`/api/v1/tasks/${taskId}/events`);
+    source.addEventListener('status', event => {
+      const data = JSON.parse(event.data);
+      const state = data.status;
+      const queue = data.queue_position ? ` · 队列第 ${data.queue_position} 位` : '';
+      $('status').textContent = `${state}${queue}`;
+      if (state === 'PENDING') {
+        const active = data.active_worker_task_id ? `；Worker 当前执行 ${data.active_worker_task_id.slice(0, 8)}` : '';
+        setPending(`任务已入队${queue}${active}。系统会持续更新队列状态。`);
+      }
+      if (state === 'RUNNING') setPending('Worker 已领取任务，正在理解需求并执行 GIS 工作流。');
+    });
+    source.addEventListener('progress', event => {
+      const data = JSON.parse(event.data);
+      const node = document.createElement('div');
+      node.className = `event ${data.status === 'failed' ? 'failed' : ''}`;
+      const batch = data.batch ? ` · 批次 ${data.batch}/${data.total_batches || '?'}` : '';
+      const label = (data.tool ? `${data.node || 'execute'} / ${data.tool}` : (data.node || 'workflow')) + batch;
+      node.innerHTML = `${escapeHtml(label)} · ${escapeHtml(data.status || '')}<small>${data.duration_ms || 0} ms</small>`;
+      $('events').appendChild(node);
+      $('events').scrollTop = $('events').scrollHeight;
+    });
+    source.addEventListener('result', async event => {
+      const result = JSON.parse(event.data);
+      setPending(result.answer || '任务已完成。');
+      await showArtifacts(taskId, result.artifacts || [], pendingBubble);
+    });
+    source.addEventListener('error', event => {
+      if (!event.data) return;
+      const data = JSON.parse(event.data);
+      setPending(data.message || data.code || '任务执行失败，请查看 Worker 日志。', true);
+    });
+    source.addEventListener('complete', async event => {
+      source.close();
+      $('run').disabled = false;
+      $('status').textContent = JSON.parse(event.data).status;
+      pendingBubble = null;
+      try {
+        const info = await api(`/api/v1/conversations/${conversationId}`);
+        updateConversationHeader(info);
+        await loadConversations(false);
+      } catch (_) {}
+    });
+  }
+  async function showArtifacts(taskId, artifacts, bubble) {
+    $('downloads').innerHTML = artifacts.length ? '' : '<div class="empty">未生成文件</div>';
+    const list = document.createElement('div');
+    list.className = 'artifact-list';
+    for (const artifact of artifacts) {
+      const size = Math.round((artifact.size_bytes || 0) / 1024);
+      const label = `${artifact.kind} · ${size} KB`;
+      const sideLink = document.createElement('a');
+      sideLink.href = artifact.download_url; sideLink.textContent = `下载 ${label}`;
+      $('downloads').appendChild(sideLink);
+      const chatLink = sideLink.cloneNode(true);
+      list.appendChild(chatLink);
+      if (artifact.kind === 'result') {
+        try {
+          const geo = await api(`/api/v1/tasks/${taskId}/artifacts/${artifact.artifact_id}/geojson`);
+          if (resultLayer) map.removeLayer(resultLayer);
+          resultLayer = L.geoJSON(geo, {
+            style:() => ({color:'#18c99a', weight:2, fillColor:'#37d6a3', fillOpacity:.34}),
+            pointToLayer:(_f, latlng) => L.circleMarker(latlng, {radius:6,color:'#dfffee',weight:2,fillColor:'#15b887',fillOpacity:.9}),
+            onEachFeature:(feature, layer) => layer.bindPopup(Object.entries(feature.properties || {}).map(([k,v]) => `<b>${escapeHtml(k)}</b>: ${escapeHtml(v)}`).join('<br>'))
+          }).addTo(map);
+          if (resultLayer.getBounds().isValid()) map.fitBounds(resultLayer.getBounds(), {padding:[28,28]});
+          $('mapHint').textContent = `已加载 ${geo.features ? geo.features.length : 0} 个结果要素`;
+        } catch (error) { $('mapHint').textContent = `图层加载失败：${error.message}`; }
+      }
+    }
+    if (artifacts.length && bubble) bubble.appendChild(list);
+  }
+
+  $('run').onclick = runAnalysis;
+  $('newChat').onclick = resetConversation;
+  $('query').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); runAnalysis(); }
+  });
+  $('capabilities').onclick = event => {
+    if (event.target.dataset.q) { $('query').value = event.target.dataset.q; $('query').focus(); }
+  };
+  $('user').addEventListener('change', async () => {
+    resetConversation();
+    try { await loadConversations(true); } catch (error) { $('conversations').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
+  });
+
+  loadConversations(true).catch(error => {
+    $('conversations').innerHTML = `<div class="empty">历史会话加载失败：${escapeHtml(error.message)}</div>`;
+  });
+</script>
+</body>
+</html>

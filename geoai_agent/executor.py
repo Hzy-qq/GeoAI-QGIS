@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import env_int
 from .errors import BudgetExceededError, classify_error
+from .progress import append_progress
 from .python_gis_tools import run_python_tool
 from .qgis_runner import run_qgis_algorithm
 from .task_workspace import TaskWorkspace
@@ -49,7 +50,10 @@ def execute_task(
     started = time.monotonic()
     try:
         if config["backend"] == "python":
-            result = run_python_tool(tool_name, params)
+            result = run_python_tool(
+                tool_name,
+                {**params, "__TASK_ID": workspace.task_id},
+            )
         else:
             result = run_qgis_algorithm(config["algorithm"], params)
         success = bool(result.get("success"))
@@ -89,9 +93,29 @@ def execute_workflow(
     active_budget = budget or ExecutionBudget()
     results = []
     for index, task in enumerate(workflow["steps"], start=1):
+        append_progress(
+            workspace.task_id,
+            {
+                "node": "execute",
+                "status": "running",
+                "step": index,
+                "tool": task["tool"],
+            },
+        )
         result = execute_task(task, workspace, active_budget)
         result["step"] = index
         results.append(result)
+        append_progress(
+            workspace.task_id,
+            {
+                "node": "execute",
+                "status": "success" if result["success"] else "failed",
+                "step": index,
+                "tool": task["tool"],
+                "duration_ms": result["duration_ms"],
+                "error": result["error_message"] or None,
+            },
+        )
         if not result["success"]:
             break
     success = len(results) == len(workflow["steps"]) and all(

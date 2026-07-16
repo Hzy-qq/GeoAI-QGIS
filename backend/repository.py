@@ -5,7 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from geoai_agent.config import env_str
@@ -54,8 +54,35 @@ def list_tasks(session: Session, limit: int, offset: int) -> list[AgentTask]:
     return list(session.execute(statement).scalars())
 
 
+def pending_queue_position(session: Session, task: AgentTask) -> int | None:
+    if task.status != "PENDING":
+        return None
+    statement = select(func.count()).select_from(AgentTask).where(
+        AgentTask.status == "PENDING",
+        or_(
+            AgentTask.created_at < task.created_at,
+            and_(AgentTask.created_at == task.created_at, AgentTask.id <= task.id),
+        ),
+    )
+    return int(session.execute(statement).scalar_one())
+
+
 def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
     return session.get(Conversation, conversation_id)
+
+
+def list_conversations(
+    session: Session,
+    user_id: str,
+    limit: int = 20,
+) -> list[Conversation]:
+    statement = (
+        select(Conversation)
+        .where(Conversation.user_id == user_id)
+        .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+        .limit(limit)
+    )
+    return list(session.execute(statement).scalars())
 
 
 def get_conversation_turn(session: Session, task_id: str) -> ConversationTurn | None:
@@ -145,6 +172,27 @@ def recover_stale_tasks(session: Session, stale_after_seconds: int) -> int:
     return len(tasks)
 
 
+def expire_stale_pending_tasks(session: Session, max_age_seconds: int) -> int:
+    if max_age_seconds <= 0:
+        return 0
+    cutoff = utc_now() - timedelta(seconds=max_age_seconds)
+    statement = select(AgentTask).where(
+        AgentTask.status == "PENDING",
+        AgentTask.created_at < cutoff,
+    )
+    tasks = list(session.execute(statement).scalars())
+    for task in tasks:
+        task.status = "FAILED"
+        task.error_code = "QUEUE_EXPIRED"
+        task.error_message = (
+            "The queued task expired before a Worker claimed it. Submit it again if still needed."
+        )
+        task.finished_at = utc_now()
+        task.updated_at = utc_now()
+    session.commit()
+    return len(tasks)
+
+
 def mark_task_failed(
     session: Session,
     task_id: str,
@@ -160,6 +208,42 @@ def mark_task_failed(
     task.finished_at = utc_now()
     task.updated_at = utc_now()
     session.commit()
+
+
+def mark_pending_task_failed(
+    session: Session,
+    task_id: str,
+    error_code: str,
+    error_message: str,
+) -> bool:
+    task = get_task(session, task_id)
+    if task is None or task.status != "PENDING":
+        return False
+    task.status = "FAILED"
+    task.error_code = error_code[:80]
+    task.error_message = error_message
+    task.finished_at = utc_now()
+    task.updated_at = utc_now()
+    session.commit()
+    return True
+
+
+def mark_running_task_failed(
+    session: Session,
+    task_id: str,
+    worker_id: str,
+    error_message: str,
+) -> bool:
+    task = get_task(session, task_id)
+    if task is None or task.status != "RUNNING" or task.worker_id != worker_id:
+        return False
+    task.status = "FAILED"
+    task.error_code = "WORKER_INTERRUPTED"
+    task.error_message = error_message
+    task.finished_at = utc_now()
+    task.updated_at = utc_now()
+    session.commit()
+    return True
 
 
 def _score(document: dict[str, Any]) -> float | None:

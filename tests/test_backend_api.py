@@ -91,6 +91,9 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(messages.status_code, 200)
         self.assertEqual(len(messages.json()["items"]), 2)
         self.assertTrue(all(item["role"] == "user" for item in messages.json()["items"]))
+        conversations = self.client.get("/api/v1/conversations?user_id=test-user")
+        self.assertEqual(conversations.status_code, 200)
+        self.assertEqual(conversations.json()["items"][0]["conversation_id"], conversation_id)
 
 
 if __name__ == "__main__":
