@@ -14,7 +14,7 @@ class ChromaConfigTests(unittest.TestCase):
             {"CHROMA_PATH": "outputs/test_chroma", "CHROMA_COLLECTION": "test_collection"},
         ):
             self.assertTrue(get_chroma_path().is_absolute())
-            self.assertTrue(str(get_chroma_path()).endswith("outputs\\test_chroma"))
+            self.assertEqual(get_chroma_path().parts[-2:], ("outputs", "test_chroma"))
             self.assertEqual(get_chroma_collection_name(), "test_collection")
 
 
